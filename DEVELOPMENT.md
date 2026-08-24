@@ -4,16 +4,15 @@ The current prototype intentionally has a small theme vocabulary.
 
 ## Event semantics
 
-`probabilistic` is evaluated once for every Fastly record (normally once per second).
+`probabilistic` sounds treat `rate` as an expected number of events per second, not a per-tick
+probability. Each `Process()` call computes `lambda = rate * elapsed_seconds` and draws an event
+count from a Poisson process (`internal/scheduler`), so a tick can naturally produce zero, one, or
+several events rather than at most one. `elapsed_seconds` is derived from the actual gap between
+record timestamps (clamped to 10s) rather than assumed to always be 1 second, so gaps in polling
+don't unleash a flood of catch-up events.
 
-If:
-
-    rate = 0.4
-
-then the behaviour has a 40% chance of producing an event for that second.
-
-This is deliberately simple. A later version should use a Poisson process so a rate can mean
-"expected events per second" and can produce zero, one, or several events during a tick.
+Randomness is seeded via `theme.NewEngineWithSeed`; `theme.NewEngine` seeds from the current time
+for live variation, and the CLI's `--seed` flag can pin it for reproducible runs.
 
 ## SoundFonts
 

@@ -85,7 +85,7 @@ func (s *SoundFontOutput) renderLoop(sampleRate int32) {
 
 		// Keep a modest amount of audio buffered without allowing the
 		// renderer to run arbitrarily far ahead of the audio device.
-		time.Sleep(time.Duration(float64(frames)/float64(sampleRate)*float64(time.Second)/2))
+		time.Sleep(time.Duration(float64(frames) / float64(sampleRate) * float64(time.Second) / 2))
 	}
 }
 

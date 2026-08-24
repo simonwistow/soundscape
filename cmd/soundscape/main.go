@@ -22,6 +22,7 @@ func main() {
 		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont")
 		simulate  = flag.Bool("simulate", false, "use generated telemetry instead of Fastly")
 		verbose   = flag.Bool("verbose", false, "log telemetry")
+		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
 	)
 	flag.Parse()
 
@@ -41,7 +42,12 @@ func main() {
 		out = sf
 	}
 
-	engine := theme.NewEngine(th, out)
+	var engine *theme.Engine
+	if *seed != 0 {
+		engine = theme.NewEngineWithSeed(th, out, *seed)
+	} else {
+		engine = theme.NewEngine(th, out)
+	}
 
 	if *simulate {
 		runSimulation(engine)

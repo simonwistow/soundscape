@@ -7,9 +7,9 @@ type Event interface {
 }
 
 type NoteOn struct {
-	Channel  int
-	Note     int
-	Velocity int
+	Channel    int
+	Note       int
+	Velocity   int
 	DurationMs int
 }
 
@@ -19,9 +19,9 @@ func (e NoteOn) Describe() string {
 }
 
 type CC struct {
-	Channel   int
+	Channel    int
 	Controller int
-	Value     int
+	Value      int
 }
 
 func (e CC) Describe() string {
