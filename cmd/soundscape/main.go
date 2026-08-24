@@ -6,9 +6,12 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"example.com/fastly-soundscape/internal/fastly"
+	"example.com/fastly-soundscape/internal/midi"
 	"example.com/fastly-soundscape/internal/output"
 	"example.com/fastly-soundscape/internal/sampler"
 	"example.com/fastly-soundscape/internal/synth"
@@ -28,6 +31,7 @@ func main() {
 		token     = flag.String("token", os.Getenv("FASTLY_API_TOKEN"), "Fastly API token")
 		themePath = flag.String("theme", "themes/forest/theme.yaml", "theme YAML file")
 		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, for note/cc-output sounds")
+		midiOut   = flag.String("midi-out", "", "optional path to write a Standard MIDI File (.mid) of note/cc-output sounds; no live device support yet, see internal/midi")
 		simulate  = flag.Bool("simulate", false, "use generated telemetry instead of Fastly")
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
@@ -40,11 +44,23 @@ func main() {
 		log.Fatal(err)
 	}
 
-	out, player, closeOutput, err := buildOutput(th, *soundFont)
+	out, player, closeOutput, err := buildOutput(th, *soundFont, *midiOut)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer closeOutput()
+
+	// A theme run typically loops forever, so make sure Ctrl+C/SIGTERM
+	// still finalizes output that needs an explicit close (notably the
+	// MIDI file's end-of-track marker) instead of just getting killed.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		log.Println("shutting down...")
+		closeOutput()
+		os.Exit(0)
+	}()
 
 	var engine *theme.Engine
 	if *seed != 0 {
@@ -125,11 +141,12 @@ func runValidate(args []string) {
 // buildOutput assembles whichever output backends the theme and flags call
 // for: the WAV sample player is started automatically whenever the theme
 // references any sample_group (no flag needed, so a sample-only theme is
-// self-contained), and the SoundFont backend is added if --soundfont is
-// given. A theme can use both at once (e.g. sampled birds alongside a
-// SoundFont-driven instrument). With neither, falls back to the Console
+// self-contained), the SoundFont backend is added if --soundfont is given,
+// and the virtual MIDI file backend is added if --midi-out is given. A
+// theme can use several of these at once (e.g. sampled birds alongside a
+// SoundFont-driven instrument). With none, falls back to the Console
 // backend so the theme can still be exercised with no audio at all.
-func buildOutput(th theme.Theme, soundFontPath string) (output.Output, *sampler.Player, func(), error) {
+func buildOutput(th theme.Theme, soundFontPath, midiOutPath string) (output.Output, *sampler.Player, func(), error) {
 	var outs []output.Output
 	var closers []func()
 	var player *sampler.Player
@@ -157,6 +174,18 @@ func buildOutput(th theme.Theme, soundFontPath string) (output.Output, *sampler.
 		}
 		outs = append(outs, sf)
 		closers = append(closers, sf.Close)
+	}
+
+	if midiOutPath != "" {
+		m := midi.NewVirtualOutput(midiOutPath)
+		outs = append(outs, m)
+		closers = append(closers, func() {
+			if err := m.Close(); err != nil {
+				log.Printf("midi: failed to write %s: %v", midiOutPath, err)
+				return
+			}
+			log.Printf("midi: wrote %s", midiOutPath)
+		})
 	}
 
 	if len(outs) == 0 {

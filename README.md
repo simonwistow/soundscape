@@ -15,6 +15,8 @@ A Go-based generative soundscape driven by Fastly real-time analytics.
           +----> WAV sample player -> speakers (self-contained, no extra files needed)
           |
           +----> SoundFont synth -> speakers (optional, needs an .sf2 file)
+          |
+          +----> virtual MIDI -> a .mid file (optional; no live device yet)
 
 The theme is YAML rather than Go code.
 
@@ -33,6 +35,8 @@ The theme is YAML rather than Go code.
   procedurally-generated placeholder samples (`cmd/gensamples`) — no SoundFont or external assets
   required to hear something
 * an optional SoundFont backend (Go-MeltySynth) for `note`/`cc`-output sounds
+* an optional virtual MIDI backend: writes `note`/`cc`-output sounds as a real, playable Standard
+  MIDI File — no live device support yet (that needs cgo; see `internal/midi`'s package doc)
 * console mode for development without audio
 * deterministic simulation mode so a theme can be developed without a Fastly account
 
@@ -56,6 +60,10 @@ Run against Fastly:
 Also drive a SoundFont for any `note`/`cc`-output sounds in the theme:
 
     go run ./cmd/soundscape --simulate --soundfont /path/to/your.sf2
+
+Or capture those same sounds as a Standard MIDI File (finalized on exit, including Ctrl+C):
+
+    go run ./cmd/soundscape --simulate --midi-out session.mid
 
 Pin the random seed for a reproducible run:
 
@@ -112,18 +120,21 @@ The theme engine is intended to grow a small vocabulary of reusable behaviours r
     internal/audio      shared renderer->Oto ring-buffer plumbing
     internal/synth      SoundFont output backend
     internal/sampler    WAV sample-player output backend
+    internal/midi       virtual (file-based) MIDI output backend
     cmd/soundscape      CLI
     cmd/gensamples      placeholder sample asset generator
 
 The theme engine only depends on `internal/event` and `internal/output`'s `Output` interface,
 never on a concrete backend. `cmd/soundscape` picks backends automatically: the sample player
 starts whenever the theme references any `sample_group` (no flag needed), the SoundFont backend
-starts if `--soundfont` is given, and both can run at once via `output.Multi`; with neither, it
-falls back to the text-only Console backend.
+starts if `--soundfont` is given, the MIDI file backend starts if `--midi-out` is given, and any
+combination of these can run at once via `output.Multi`; with none, it falls back to the
+text-only Console backend.
 
 ## Next steps
 
-1. Add a real MIDI output backend using RtMidi.
+1. Add a live MIDI output backend (cgo + RtMidi, behind a build tag — see `internal/midi`'s
+   package doc for why that's a bigger step than everything else here).
 2. Add richer stochastic actors such as flocks, crowds and weather.
 3. Add MIDI 2.0/OSC output.
 4. Embed themes and optionally assets into a single distributable binary.
