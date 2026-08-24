@@ -29,8 +29,9 @@ The theme is YAML rather than Go code.
   never depends on a specific output backend
 * a real WAV sample player (`internal/sampler`): pitch shifting, velocity/pan, looping, click-free
   envelopes, voice stealing, and gain-smoothed crossfades between looping layers
-* the `forest-glade` theme plays entirely through procedurally-generated placeholder samples
-  (`cmd/gensamples`) — no SoundFont or external assets required to hear something
+* two complete example themes, `forest-glade` and `farmers-market`, both playing entirely through
+  procedurally-generated placeholder samples (`cmd/gensamples`) — no SoundFont or external assets
+  required to hear something
 * an optional SoundFont backend (Go-MeltySynth) for `note`/`cc`-output sounds
 * console mode for development without audio
 * deterministic simulation mode so a theme can be developed without a Fastly account
@@ -42,6 +43,10 @@ Install Go 1.23+.
 Run the simulation — this alone produces audio, no flags needed:
 
     go run ./cmd/soundscape --simulate
+
+Try the other example theme:
+
+    go run ./cmd/soundscape --simulate --theme themes/market/theme.yaml
 
 Run against Fastly:
 
@@ -75,9 +80,9 @@ The API reports one-second records and returns a `Timestamp` to use for the next
 
 ## Theme format
 
-See `themes/forest/theme.yaml`. A theme is a directory: `theme.yaml` plus a `samples/` folder,
-so it's self-contained wherever it's run from (`sample_group` paths resolve relative to the
-theme file).
+See `themes/forest/theme.yaml` and `themes/market/theme.yaml`. A theme is a directory: `theme.yaml`
+plus a `samples/` folder, so it's self-contained wherever it's run from (`sample_group` paths
+resolve relative to the theme file).
 
 * `source` describes a Fastly metric: `smoothing` controls temporal smoothing, `normalise` maps
   it into 0..1.
@@ -88,10 +93,11 @@ theme file).
   vocabulary, including how two `sample_loop` sounds crossfade.
 
 `cmd/gensamples` procedurally synthesizes placeholder sample assets (tone sweeps for chirps,
-filtered noise for rivers/splashes) — useful for bootstrapping a new theme before real recordings
-are ready:
+filtered noise for rivers/crowds/splashes) — useful for bootstrapping a new theme before real
+recordings are ready:
 
-    go run ./cmd/gensamples --out themes/forest/samples
+    go run ./cmd/gensamples --theme forest   # writes to themes/forest/samples
+    go run ./cmd/gensamples --theme market   # writes to themes/market/samples
 
 The theme engine is intended to grow a small vocabulary of reusable behaviours rather than requiring a Go plugin for every theme.
 
@@ -119,7 +125,6 @@ falls back to the text-only Console backend.
 
 1. Add a real MIDI output backend using RtMidi.
 2. Add richer stochastic actors such as flocks, crowds and weather.
-3. Add hot theme reload.
-4. Add MIDI 2.0/OSC output.
-5. Embed themes and optionally assets into a single distributable binary.
-6. Replace the procedurally-generated placeholder samples with real recordings.
+3. Add MIDI 2.0/OSC output.
+4. Embed themes and optionally assets into a single distributable binary.
+5. Replace the procedurally-generated placeholder samples with real recordings.

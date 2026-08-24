@@ -15,6 +15,16 @@ func TestValidateForestThemePasses(t *testing.T) {
 	}
 }
 
+func TestValidateMarketThemePasses(t *testing.T) {
+	th, err := Load("../../themes/market/theme.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if errs := Validate(th); len(errs) != 0 {
+		t.Fatalf("expected the real market theme to validate cleanly, got: %v", errs)
+	}
+}
+
 func containsMsg(errs []error, substr string) bool {
 	for _, e := range errs {
 		if strings.Contains(e.Error(), substr) {

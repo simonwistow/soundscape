@@ -81,6 +81,29 @@ func abs32(v float32) float32 {
 	return v
 }
 
+// generateNoiseLoop synthesizes a seamlessly-loopable bed of filtered noise
+// — used for the forest's river and, with different parameters, the
+// market's crowd murmur. Lower filterAlpha sounds darker/calmer; modulate
+// adds slow amplitude movement for a more turbulent/bustling character.
+func generateNoiseLoop(rng *rand.Rand, seconds float64, filterAlpha, amplitude float32, modulate bool) []float32 {
+	length := int(seconds * sampleRate)
+	overlap := samplesFor(0.3)
+
+	gen := func(n int) []float32 {
+		filtered := lowpass(whiteNoise(rng, n), filterAlpha)
+		if modulate {
+			for i := range filtered {
+				t := float64(i) / sampleRate
+				lfo := 1 + 0.15*math.Sin(2*math.Pi*0.3*t)
+				filtered[i] *= float32(lfo)
+			}
+		}
+		return filtered
+	}
+
+	return normalize(seamlessLoop(length, overlap, gen), amplitude)
+}
+
 // applyEnvelope multiplies a signal by a raised-sine window, giving a smooth
 // attack and decay so one-shot samples never click even before the sample
 // player's own fade is applied.
