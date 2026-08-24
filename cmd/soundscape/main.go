@@ -99,7 +99,7 @@ func main() {
 		}
 
 		for _, record := range resp.Data {
-			engine.Process(record.Recorded, record.Aggregated)
+			engine.Process(record.Recorded, record.Metrics())
 		}
 
 		timestamp = resp.Timestamp

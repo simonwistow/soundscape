@@ -516,7 +516,7 @@ Simulation mode was intended to allow development without a Fastly account:
 
 ```bash
 go run ./cmd/soundscape \
-    --theme themes/forest.yaml \
+    --theme themes/forest/theme.yaml \
     --simulate
 ```
 
@@ -526,7 +526,7 @@ Fastly mode is intended to look approximately like:
 FASTLY_API_TOKEN=... \
 go run ./cmd/soundscape \
     --service-id YOUR_SERVICE_ID \
-    --theme themes/forest.yaml
+    --theme themes/forest/theme.yaml
 ```
 
 SoundFont mode:
@@ -535,7 +535,7 @@ SoundFont mode:
 FASTLY_API_TOKEN=... \
 go run ./cmd/soundscape \
     --service-id YOUR_SERVICE_ID \
-    --theme themes/forest.yaml \
+    --theme themes/forest/theme.yaml \
     --soundfont /path/to/forest.sf2
 ```
 
@@ -744,7 +744,7 @@ This will make SoundFonts much more useful for melodic/tonal themes.
 Eventually:
 
 ```bash
-soundscape validate themes/forest.yaml
+soundscape validate themes/forest/theme.yaml
 ```
 
 should catch:
@@ -806,7 +806,7 @@ soundscape run --theme forest --output midi
 
 soundscape simulate --theme forest
 
-soundscape validate themes/forest.yaml
+soundscape validate themes/forest/theme.yaml
 
 soundscape list-themes
 

@@ -22,8 +22,28 @@ type Response struct {
 }
 
 type Record struct {
-	Recorded   int64              `json:"recorded"`
-	Aggregated map[string]float64 `json:"aggregated"`
+	Recorded int64 `json:"recorded"`
+	// Aggregated is decoded as raw JSON rather than map[string]float64
+	// because Fastly's real-time analytics API mixes plain numeric metrics
+	// with some fields aggregated as nested objects (e.g. per-shield
+	// breakdowns); unmarshaling straight into map[string]float64 fails
+	// outright the moment any single value isn't a number. Use Metrics()
+	// to get the numeric fields.
+	Aggregated map[string]json.RawMessage `json:"aggregated"`
+}
+
+// Metrics returns the record's numeric aggregated fields, silently
+// skipping any value that isn't a plain JSON number (objects, arrays,
+// strings). This is the counterpart to Aggregated's raw decoding above.
+func (r Record) Metrics() map[string]float64 {
+	out := make(map[string]float64, len(r.Aggregated))
+	for k, raw := range r.Aggregated {
+		var v float64
+		if err := json.Unmarshal(raw, &v); err == nil {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func NewClient(token, serviceID string) *Client {

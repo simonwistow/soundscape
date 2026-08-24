@@ -3,5 +3,6 @@
 *.test
 *.sf2
 .DS_Store
+run.sh
 .claude/settings.local.json
 .claude/.cc-writes/
