@@ -56,6 +56,11 @@ Pin the random seed for a reproducible run:
 
     go run ./cmd/soundscape --simulate --seed 42
 
+Validate a theme (missing/duplicate names, unknown sources, inverted ranges, out-of-range MIDI
+values, missing sample directories, unknown behaviour/output kinds):
+
+    go run ./cmd/soundscape validate themes/forest/theme.yaml
+
 ## Fastly API
 
 The client uses the real-time analytics endpoint:

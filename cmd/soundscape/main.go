@@ -18,6 +18,11 @@ import (
 const sampleRate = 44100
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "validate" {
+		runValidate(os.Args[2:])
+		return
+	}
+
 	var (
 		serviceID = flag.String("service-id", os.Getenv("FASTLY_SERVICE_ID"), "Fastly service ID")
 		token     = flag.String("token", os.Getenv("FASTLY_API_TOKEN"), "Fastly API token")
@@ -79,6 +84,37 @@ func main() {
 		timestamp = resp.Timestamp
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// runValidate implements `soundscape validate <theme.yaml>`: load the theme
+// and report every problem theme.Validate finds, exiting non-zero if any.
+func runValidate(args []string) {
+	fs := flag.NewFlagSet("validate", flag.ExitOnError)
+	fs.Parse(args)
+
+	if fs.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "usage: soundscape validate <theme.yaml>")
+		os.Exit(2)
+	}
+	path := fs.Arg(0)
+
+	th, err := theme.Load(path)
+	if err != nil {
+		fmt.Printf("%s: failed to load: %v\n", path, err)
+		os.Exit(1)
+	}
+
+	issues := theme.Validate(th)
+	if len(issues) == 0 {
+		fmt.Printf("%s: OK (%d sources, %d sounds)\n", path, len(th.Sources), len(th.Sounds))
+		return
+	}
+
+	fmt.Printf("%s: %d problem(s) found\n", path, len(issues))
+	for _, issue := range issues {
+		fmt.Printf("  - %v\n", issue)
+	}
+	os.Exit(1)
 }
 
 // buildOutput assembles whichever output backends the theme and flags call
