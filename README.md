@@ -89,21 +89,28 @@ The theme engine is intended to grow a small vocabulary of reusable behaviours r
     internal/scheduler  Poisson event-rate scheduler
     internal/event      abstract sound-event model (Note/Sample/Control)
     internal/output     sound output abstraction
-    internal/synth      SoundFont output
+    internal/audio      shared renderer->Oto ring-buffer plumbing
+    internal/synth      SoundFont output backend
+    internal/sampler    WAV sample-player output backend
     cmd/soundscape      CLI
 
 The theme engine only depends on `internal/event` and `internal/output`'s
 `Output` interface, never on a concrete backend. It turns metrics into
-abstract events (`event.Note`, `event.Control`, and eventually
-`event.Sample`); each output backend decides how to realise them — the
-SoundFont backend turns a `Note` into a MIDI note-on/off pair, for example.
+abstract events (`event.Note`, `event.Control`, `event.Sample`); each output
+backend decides how to realise them — the SoundFont backend turns a `Note`
+into a MIDI note-on/off pair, while `internal/sampler` plays a WAV file with
+pitch shifting, velocity/pan, looping, voice stealing, and gain-smoothed
+crossfades (an `event.Sample` with `Loop: true` starts a persistent layer
+whose gain glides towards whatever value later events for the same actor
+request — two such layers with opposing gain curves is how a gentle/rushing
+river crossfade will be built).
 
 ## Next steps
 
-1. Add WAV/FLAC sample instruments with overlapping voices.
+1. Wire the sample player into a theme (the river, then birds) — needs real
+   sample assets or procedurally-generated placeholders.
 2. Add a real MIDI output backend using RtMidi.
-3. Add crossfades between environmental samples.
-4. Add richer stochastic actors such as flocks, crowds and weather.
-5. Add hot theme reload.
-6. Add MIDI 2.0/OSC output.
-7. Embed themes and optionally assets into a single distributable binary.
+3. Add richer stochastic actors such as flocks, crowds and weather.
+4. Add hot theme reload.
+5. Add MIDI 2.0/OSC output.
+6. Embed themes and optionally assets into a single distributable binary.

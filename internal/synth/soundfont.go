@@ -11,6 +11,7 @@ import (
 	"github.com/ebitengine/oto/v3"
 	"github.com/sinshu/go-meltysynth/meltysynth"
 
+	"example.com/fastly-soundscape/internal/audio"
 	"example.com/fastly-soundscape/internal/event"
 )
 
@@ -18,7 +19,7 @@ type SoundFontOutput struct {
 	mu     sync.Mutex
 	synth  *meltysynth.Synthesizer
 	player *oto.Player
-	pipe   *audioPipe
+	pipe   *audio.Pipe
 }
 
 func NewSoundFontOutput(path string) (*SoundFontOutput, error) {
@@ -49,7 +50,7 @@ func NewSoundFontOutput(path string) (*SoundFontOutput, error) {
 	}
 	<-ready
 
-	pipe := newAudioPipe()
+	pipe := audio.NewPipe()
 	player := ctx.NewPlayer(pipe)
 	player.Play()
 
@@ -129,54 +130,4 @@ func (s *SoundFontOutput) Close() {
 	if s.player != nil {
 		_ = s.player.Close()
 	}
-}
-
-type audioPipe struct {
-	mu     sync.Mutex
-	cond   *sync.Cond
-	buf    []byte
-	closed bool
-}
-
-func newAudioPipe() *audioPipe {
-	p := &audioPipe{}
-	p.cond = sync.NewCond(&p.mu)
-	return p
-}
-
-func (p *audioPipe) Write(b []byte) (int, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.closed {
-		return 0, fmt.Errorf("audio pipe closed")
-	}
-
-	p.buf = append(p.buf, b...)
-	p.cond.Signal()
-	return len(b), nil
-}
-
-func (p *audioPipe) Read(b []byte) (int, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	for len(p.buf) == 0 && !p.closed {
-		p.cond.Wait()
-	}
-
-	if len(p.buf) == 0 && p.closed {
-		return 0, fmt.Errorf("audio pipe closed")
-	}
-
-	n := copy(b, p.buf)
-	p.buf = p.buf[n:]
-	return n, nil
-}
-
-func (p *audioPipe) Close() {
-	p.mu.Lock()
-	p.closed = true
-	p.cond.Broadcast()
-	p.mu.Unlock()
 }

@@ -34,18 +34,28 @@ func (n Note) Describe() string {
 // Sample requests playback of a recorded sound rather than a synthesized
 // note. Group names a directory/collection of samples the output backend
 // should pick from (e.g. random bird-call variation).
+//
+// When Loop is true, this describes a persistent, continuously-playing
+// layer (identified by Actor) rather than a one-shot hit: the backend
+// starts it once and thereafter just smoothly retargets its gain/pitch on
+// each subsequent Sample event with the same Actor. DurationMs is ignored
+// for loops. This is how a theme builds a crossfade (e.g. a gentle-stream
+// layer and a rushing-stream layer whose gains move in opposite directions
+// as bandwidth rises).
 type Sample struct {
 	Actor      string
 	Channel    int
 	Group      string
+	Loop       bool
 	Pitch      float64 // playback pitch-shift ratio; 1.0 = unshifted
 	Velocity   float64 // 0..1 gain
+	Pan        float64 // -1 (left) .. 1 (right), 0 = centre
 	DurationMs int
 }
 
 func (s Sample) Describe() string {
-	return fmt.Sprintf("SAMPLE actor=%s channel=%d group=%s pitch=%.3f velocity=%.3f duration=%dms",
-		s.Actor, s.Channel, s.Group, s.Pitch, s.Velocity, s.DurationMs)
+	return fmt.Sprintf("SAMPLE actor=%s channel=%d group=%s loop=%t pitch=%.3f velocity=%.3f pan=%.2f duration=%dms",
+		s.Actor, s.Channel, s.Group, s.Loop, s.Pitch, s.Velocity, s.Pan, s.DurationMs)
 }
 
 // Control is a continuously varying environmental parameter (river volume,
