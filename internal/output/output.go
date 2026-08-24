@@ -1,45 +1,28 @@
+// Package output defines the sound-output abstraction: something that can
+// realise abstract event.Event values as audio, MIDI, or anything else. The
+// theme engine only ever depends on this interface, never on a concrete
+// backend.
 package output
 
-import "fmt"
+import (
+	"fmt"
 
-type Event interface {
-	Describe() string
-}
-
-type NoteOn struct {
-	Channel    int
-	Note       int
-	Velocity   int
-	DurationMs int
-}
-
-func (e NoteOn) Describe() string {
-	return fmt.Sprintf("NOTE channel=%d note=%d velocity=%d duration=%dms",
-		e.Channel, e.Note, e.Velocity, e.DurationMs)
-}
-
-type CC struct {
-	Channel    int
-	Controller int
-	Value      int
-}
-
-func (e CC) Describe() string {
-	return fmt.Sprintf("CC channel=%d controller=%d value=%d",
-		e.Channel, e.Controller, e.Value)
-}
+	"example.com/fastly-soundscape/internal/event"
+)
 
 type Output interface {
-	Send(Event) error
+	Send(event.Event) error
 }
 
+// Console is a development backend that just prints events, so a theme can
+// be exercised with no audio hardware at all.
 type Console struct{}
 
 func NewConsole() *Console {
 	return &Console{}
 }
 
-func (c *Console) Send(e Event) error {
+func (c *Console) Send(e event.Event) error {
 	fmt.Println(e.Describe())
 	return nil
 }

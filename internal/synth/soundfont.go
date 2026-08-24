@@ -11,7 +11,7 @@ import (
 	"github.com/ebitengine/oto/v3"
 	"github.com/sinshu/go-meltysynth/meltysynth"
 
-	"example.com/fastly-soundscape/internal/output"
+	"example.com/fastly-soundscape/internal/event"
 )
 
 type SoundFontOutput struct {
@@ -89,22 +89,22 @@ func (s *SoundFontOutput) renderLoop(sampleRate int32) {
 	}
 }
 
-func (s *SoundFontOutput) Send(e output.Event) error {
+func (s *SoundFontOutput) Send(e event.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	switch v := e.(type) {
-	case output.NoteOn:
-		s.synth.NoteOn(int32(v.Channel), int32(v.Note), int32(v.Velocity))
+	case event.Note:
+		s.synth.NoteOn(int32(v.Channel), int32(v.Pitch), int32(v.Velocity))
 
-		go func(channel, note int, duration time.Duration) {
+		go func(channel, pitch int, duration time.Duration) {
 			time.Sleep(duration)
 			s.mu.Lock()
-			s.synth.NoteOff(int32(channel), int32(note))
+			s.synth.NoteOff(int32(channel), int32(pitch))
 			s.mu.Unlock()
-		}(v.Channel, v.Note, time.Duration(v.DurationMs)*time.Millisecond)
+		}(v.Channel, v.Pitch, time.Duration(v.DurationMs)*time.Millisecond)
 
-	case output.CC:
+	case event.Control:
 		// SoundFont synths expose MIDI controllers. This lets a theme use
 		// the same event model for an external MIDI device and the internal
 		// synth. Exact controller semantics depend on the SoundFont.

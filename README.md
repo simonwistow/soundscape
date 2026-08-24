@@ -86,9 +86,17 @@ The theme engine is intended to grow a small vocabulary of reusable behaviours r
     internal/fastly     Fastly API client
     internal/metrics    smoothing and normalisation
     internal/theme      YAML theme + behaviour engine
+    internal/scheduler  Poisson event-rate scheduler
+    internal/event      abstract sound-event model (Note/Sample/Control)
     internal/output     sound output abstraction
     internal/synth      SoundFont output
     cmd/soundscape      CLI
+
+The theme engine only depends on `internal/event` and `internal/output`'s
+`Output` interface, never on a concrete backend. It turns metrics into
+abstract events (`event.Note`, `event.Control`, and eventually
+`event.Sample`); each output backend decides how to realise them — the
+SoundFont backend turns a `Note` into a MIDI note-on/off pair, for example.
 
 ## Next steps
 

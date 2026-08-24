@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"example.com/fastly-soundscape/internal/event"
 	"example.com/fastly-soundscape/internal/metrics"
 	"example.com/fastly-soundscape/internal/output"
 	"example.com/fastly-soundscape/internal/scheduler"
@@ -162,7 +163,7 @@ func (e *Engine) processProbabilistic(sound Sound, value float64, dt float64) {
 	count := scheduler.PoissonCount(e.rng, lambda)
 
 	for i := 0; i < count; i++ {
-		note := sound.Notes[e.rng.Intn(len(sound.Notes))]
+		pitch := sound.Notes[e.rng.Intn(len(sound.Notes))]
 		velocity := 80
 		if sound.Velocity != nil {
 			velocity = int(metrics.Lerp(sound.Velocity.Min, sound.Velocity.Max, value))
@@ -173,9 +174,10 @@ func (e *Engine) processProbabilistic(sound Sound, value float64, dt float64) {
 			duration = 300
 		}
 
-		_ = e.output.Send(output.NoteOn{
+		_ = e.output.Send(event.Note{
+			Actor:      sound.Name,
 			Channel:    sound.Channel,
-			Note:       note,
+			Pitch:      pitch,
 			Velocity:   velocity,
 			DurationMs: duration,
 		})
@@ -183,8 +185,9 @@ func (e *Engine) processProbabilistic(sound Sound, value float64, dt float64) {
 }
 
 func (e *Engine) processContinuous(sound Sound, value float64) {
-	v := int(metrics.Lerp(float64(sound.MinValue), float64(sound.MaxValue), value))
-	_ = e.output.Send(output.CC{
+	v := metrics.Lerp(float64(sound.MinValue), float64(sound.MaxValue), value)
+	_ = e.output.Send(event.Control{
+		Actor:      sound.Name,
 		Channel:    sound.Channel,
 		Controller: sound.Controller,
 		Value:      v,

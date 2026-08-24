@@ -3,14 +3,14 @@ package theme
 import (
 	"testing"
 
-	"example.com/fastly-soundscape/internal/output"
+	"example.com/fastly-soundscape/internal/event"
 )
 
 type recordingOutput struct {
-	events []output.Event
+	events []event.Event
 }
 
-func (r *recordingOutput) Send(e output.Event) error {
+func (r *recordingOutput) Send(e event.Event) error {
 	r.events = append(r.events, e)
 	return nil
 }
@@ -46,7 +46,7 @@ func testTheme() Theme {
 }
 
 func TestEngineDeterministicWithSeed(t *testing.T) {
-	run := func() []output.Event {
+	run := func() []event.Event {
 		out := &recordingOutput{}
 		engine := NewEngineWithSeed(testTheme(), out, 12345)
 		ts := int64(1000)
@@ -87,7 +87,7 @@ func TestEngineProbabilisticProducesVariedCounts(t *testing.T) {
 		ts++
 		noteEvents := 0
 		for _, e := range out.events[before:] {
-			if _, ok := e.(output.NoteOn); ok {
+			if _, ok := e.(event.Note); ok {
 				noteEvents++
 			}
 		}
@@ -123,7 +123,7 @@ func TestEngineSkipsLongGapEventFlood(t *testing.T) {
 
 	noteEvents := 0
 	for _, e := range out.events {
-		if _, ok := e.(output.NoteOn); ok {
+		if _, ok := e.(event.Note); ok {
 			noteEvents++
 		}
 	}
