@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"time"
 
 	"example.com/fastly-soundscape/internal/event"
@@ -37,18 +38,30 @@ type Range struct {
 	Max float64 `yaml:"max"`
 }
 
+// Sound describes one behaviour. Type selects the scheduling primitive
+// ("probabilistic" or "continuous"); Output selects how that primitive is
+// realised: "note" (default for probabilistic) and "cc" (default for
+// continuous) emit MIDI-style events for the SoundFont backend, while
+// "sample" and "sample_loop" emit event.Sample values for the WAV sample
+// player. A "sample_loop" sound's ramped value (min_value..max_value) is
+// used directly as loop gain, so two sample_loop sounds sharing a metric
+// with opposite min/max ramps crossfade against each other.
 type Sound struct {
-	Name       string `yaml:"name"`
-	Type       string `yaml:"type"`
-	Channel    int    `yaml:"channel"`
-	Source     string `yaml:"source"`
-	Rate       *Rate  `yaml:"rate"`
-	Velocity   *Range `yaml:"velocity"`
-	Notes      []int  `yaml:"notes"`
-	DurationMs int    `yaml:"duration_ms"`
-	Controller int    `yaml:"controller"`
-	MinValue   int    `yaml:"min_value"`
-	MaxValue   int    `yaml:"max_value"`
+	Name        string  `yaml:"name"`
+	Type        string  `yaml:"type"`
+	Output      string  `yaml:"output"`
+	Channel     int     `yaml:"channel"`
+	Source      string  `yaml:"source"`
+	Rate        *Rate   `yaml:"rate"`
+	Velocity    *Range  `yaml:"velocity"`
+	Notes       []int   `yaml:"notes"`
+	DurationMs  int     `yaml:"duration_ms"`
+	Controller  int     `yaml:"controller"`
+	MinValue    float64 `yaml:"min_value"`
+	MaxValue    float64 `yaml:"max_value"`
+	SampleGroup string  `yaml:"sample_group"`
+	Pitch       float64 `yaml:"pitch"`
+	PitchJitter *Range  `yaml:"pitch_jitter"`
 }
 
 type Rate struct {
@@ -77,6 +90,17 @@ func Load(path string) (Theme, error) {
 	if t.Name == "" {
 		return Theme{}, fmt.Errorf("theme name is required")
 	}
+
+	// sample_group paths are conventionally relative to the theme file
+	// itself, so a theme directory stays self-contained wherever it's run
+	// from.
+	baseDir := filepath.Dir(path)
+	for i, sound := range t.Sounds {
+		if sound.SampleGroup != "" && !filepath.IsAbs(sound.SampleGroup) {
+			t.Sounds[i].SampleGroup = filepath.Join(baseDir, sound.SampleGroup)
+		}
+	}
+
 	return t, nil
 }
 
@@ -154,7 +178,13 @@ func (e *Engine) Process(timestamp int64, raw map[string]float64) {
 // Poisson process, so a tick can naturally produce zero, one, or several
 // events instead of at most one.
 func (e *Engine) processProbabilistic(sound Sound, value float64, dt float64) {
-	if sound.Rate == nil || len(sound.Notes) == 0 {
+	if sound.Rate == nil {
+		return
+	}
+	if sound.Output == "sample" && sound.SampleGroup == "" {
+		return
+	}
+	if sound.Output != "sample" && len(sound.Notes) == 0 {
 		return
 	}
 
@@ -163,10 +193,9 @@ func (e *Engine) processProbabilistic(sound Sound, value float64, dt float64) {
 	count := scheduler.PoissonCount(e.rng, lambda)
 
 	for i := 0; i < count; i++ {
-		pitch := sound.Notes[e.rng.Intn(len(sound.Notes))]
-		velocity := 80
+		velocity := 80.0
 		if sound.Velocity != nil {
-			velocity = int(metrics.Lerp(sound.Velocity.Min, sound.Velocity.Max, value))
+			velocity = metrics.Lerp(sound.Velocity.Min, sound.Velocity.Max, value)
 		}
 
 		duration := sound.DurationMs
@@ -174,18 +203,60 @@ func (e *Engine) processProbabilistic(sound Sound, value float64, dt float64) {
 			duration = 300
 		}
 
+		if sound.Output == "sample" {
+			pitch := 1.0
+			if sound.PitchJitter != nil {
+				pitch = metrics.Lerp(sound.PitchJitter.Min, sound.PitchJitter.Max, e.rng.Float64())
+			}
+			// A little random pan spread keeps repeated triggers (many
+			// birds in a flock) from all sounding like the same point.
+			pan := (e.rng.Float64()*2 - 1) * 0.4
+
+			_ = e.output.Send(event.Sample{
+				Actor:      sound.Name,
+				Channel:    sound.Channel,
+				Group:      sound.SampleGroup,
+				Pitch:      pitch,
+				Velocity:   velocity,
+				Pan:        pan,
+				DurationMs: duration,
+			})
+			continue
+		}
+
+		pitch := sound.Notes[e.rng.Intn(len(sound.Notes))]
 		_ = e.output.Send(event.Note{
 			Actor:      sound.Name,
 			Channel:    sound.Channel,
 			Pitch:      pitch,
-			Velocity:   velocity,
+			Velocity:   int(velocity),
 			DurationMs: duration,
 		})
 	}
 }
 
 func (e *Engine) processContinuous(sound Sound, value float64) {
-	v := metrics.Lerp(float64(sound.MinValue), float64(sound.MaxValue), value)
+	v := metrics.Lerp(sound.MinValue, sound.MaxValue, value)
+
+	if sound.Output == "sample_loop" {
+		if sound.SampleGroup == "" {
+			return
+		}
+		pitch := sound.Pitch
+		if pitch <= 0 {
+			pitch = 1
+		}
+		_ = e.output.Send(event.Sample{
+			Actor:    sound.Name,
+			Channel:  sound.Channel,
+			Group:    sound.SampleGroup,
+			Loop:     true,
+			Pitch:    pitch,
+			Velocity: v,
+		})
+		return
+	}
+
 	_ = e.output.Send(event.Control{
 		Actor:      sound.Name,
 		Channel:    sound.Channel,

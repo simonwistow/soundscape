@@ -1,8 +1,6 @@
 # Fastly Soundscape
 
-A first prototype of a Go-based generative soundscape driven by Fastly real-time analytics.
-
-The prototype has four layers:
+A Go-based generative soundscape driven by Fastly real-time analytics.
 
     Fastly realtime API
           |
@@ -10,54 +8,53 @@ The prototype has four layers:
     Metrics -> smoothing/normalisation
           |
           v
-    Theme engine -> probabilistic events
+    Theme engine -> abstract sound events (Poisson-scheduled)
           |
-          +----> console output
+          +----> console output (text, no audio)
           |
-          +----> SoundFont synth -> speakers
+          +----> WAV sample player -> speakers (self-contained, no extra files needed)
+          |
+          +----> SoundFont synth -> speakers (optional, needs an .sf2 file)
 
 The theme is YAML rather than Go code.
 
-## Current prototype
-
-The first version deliberately keeps the scope small:
+## Current state
 
 * Fastly real-time analytics polling
 * `requests`, `resp_body_bytes`, `errors`, and `hits`
-* exponential smoothing
-* configurable normalisation
-* probabilistic bird events
-* continuous river-like control represented as MIDI CC
-* optional SoundFont playback using Go-MeltySynth
+* exponential smoothing, configurable normalisation
+* a Poisson event scheduler: a sound's `rate` is an expected events/second, not a per-tick
+  probability, so a tick can naturally produce zero, one, or several events
+* an abstract sound-event model (`event.Note`/`event.Sample`/`event.Control`) so the theme engine
+  never depends on a specific output backend
+* a real WAV sample player (`internal/sampler`): pitch shifting, velocity/pan, looping, click-free
+  envelopes, voice stealing, and gain-smoothed crossfades between looping layers
+* the `forest-glade` theme plays entirely through procedurally-generated placeholder samples
+  (`cmd/gensamples`) — no SoundFont or external assets required to hear something
+* an optional SoundFont backend (Go-MeltySynth) for `note`/`cc`-output sounds
 * console mode for development without audio
-* deterministic simulation mode so the theme can be developed without a Fastly account
-
-The SoundFont engine is an interchangeable output backend. The same events can later be sent to external hardware/DAWs through a MIDI backend. The SoundFont path is already wired for MIDI notes and CC messages.
+* deterministic simulation mode so a theme can be developed without a Fastly account
 
 ## Quick start
 
 Install Go 1.23+.
 
-Run the simulation:
+Run the simulation — this alone produces audio, no flags needed:
 
-    go run ./cmd/soundscape --theme themes/forest.yaml --simulate
+    go run ./cmd/soundscape --simulate
 
 Run against Fastly:
 
     FASTLY_API_TOKEN=... \
-    go run ./cmd/soundscape \
-      --service-id YOUR_SERVICE_ID \
-      --theme themes/forest.yaml
+    go run ./cmd/soundscape --service-id YOUR_SERVICE_ID
 
-Play through a SoundFont:
+Also drive a SoundFont for any `note`/`cc`-output sounds in the theme:
 
-    FASTLY_API_TOKEN=... \
-    go run ./cmd/soundscape \
-      --service-id YOUR_SERVICE_ID \
-      --theme themes/forest.yaml \
-      --soundfont /path/to/your.sf2
+    go run ./cmd/soundscape --simulate --soundfont /path/to/your.sf2
 
-The SoundFont should be an SF2 file. Go-MeltySynth is a pure-Go SoundFont synthesizer.
+Pin the random seed for a reproducible run:
+
+    go run ./cmd/soundscape --simulate --seed 42
 
 ## Fastly API
 
@@ -69,15 +66,23 @@ The API reports one-second records and returns a `Timestamp` to use for the next
 
 ## Theme format
 
-See `themes/forest.yaml`.
+See `themes/forest/theme.yaml`. A theme is a directory: `theme.yaml` plus a `samples/` folder,
+so it's self-contained wherever it's run from (`sample_group` paths resolve relative to the
+theme file).
 
-The important distinction is:
+* `source` describes a Fastly metric: `smoothing` controls temporal smoothing, `normalise` maps
+  it into 0..1.
+* `type: probabilistic` turns a value into a Poisson-scheduled event rate; `type: continuous`
+  ramps it into `min_value..max_value`.
+* `output` selects how that's realised: `note`/`cc` (MIDI, via the SoundFont backend) or
+  `sample`/`sample_loop` (WAV playback, via the sample player). See DEVELOPMENT.md for the full
+  vocabulary, including how two `sample_loop` sounds crossfade.
 
-* `source` describes a Fastly metric.
-* `smooth` controls temporal smoothing.
-* `normalise` maps a real metric into 0..1.
-* `probabilistic` turns that value into events.
-* `continuous` turns it into a continuous controller.
+`cmd/gensamples` procedurally synthesizes placeholder sample assets (tone sweeps for chirps,
+filtered noise for rivers/splashes) — useful for bootstrapping a new theme before real recordings
+are ready:
+
+    go run ./cmd/gensamples --out themes/forest/samples
 
 The theme engine is intended to grow a small vocabulary of reusable behaviours rather than requiring a Go plugin for every theme.
 
@@ -88,29 +93,24 @@ The theme engine is intended to grow a small vocabulary of reusable behaviours r
     internal/theme      YAML theme + behaviour engine
     internal/scheduler  Poisson event-rate scheduler
     internal/event      abstract sound-event model (Note/Sample/Control)
-    internal/output     sound output abstraction
+    internal/output     sound output abstraction (incl. Multi fan-out)
     internal/audio      shared renderer->Oto ring-buffer plumbing
     internal/synth      SoundFont output backend
     internal/sampler    WAV sample-player output backend
     cmd/soundscape      CLI
+    cmd/gensamples      placeholder sample asset generator
 
-The theme engine only depends on `internal/event` and `internal/output`'s
-`Output` interface, never on a concrete backend. It turns metrics into
-abstract events (`event.Note`, `event.Control`, `event.Sample`); each output
-backend decides how to realise them — the SoundFont backend turns a `Note`
-into a MIDI note-on/off pair, while `internal/sampler` plays a WAV file with
-pitch shifting, velocity/pan, looping, voice stealing, and gain-smoothed
-crossfades (an `event.Sample` with `Loop: true` starts a persistent layer
-whose gain glides towards whatever value later events for the same actor
-request — two such layers with opposing gain curves is how a gentle/rushing
-river crossfade will be built).
+The theme engine only depends on `internal/event` and `internal/output`'s `Output` interface,
+never on a concrete backend. `cmd/soundscape` picks backends automatically: the sample player
+starts whenever the theme references any `sample_group` (no flag needed), the SoundFont backend
+starts if `--soundfont` is given, and both can run at once via `output.Multi`; with neither, it
+falls back to the text-only Console backend.
 
 ## Next steps
 
-1. Wire the sample player into a theme (the river, then birds) — needs real
-   sample assets or procedurally-generated placeholders.
-2. Add a real MIDI output backend using RtMidi.
-3. Add richer stochastic actors such as flocks, crowds and weather.
-4. Add hot theme reload.
-5. Add MIDI 2.0/OSC output.
-6. Embed themes and optionally assets into a single distributable binary.
+1. Add a real MIDI output backend using RtMidi.
+2. Add richer stochastic actors such as flocks, crowds and weather.
+3. Add hot theme reload.
+4. Add MIDI 2.0/OSC output.
+5. Embed themes and optionally assets into a single distributable binary.
+6. Replace the procedurally-generated placeholder samples with real recordings.

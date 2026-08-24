@@ -10,16 +10,19 @@ import (
 
 	"example.com/fastly-soundscape/internal/fastly"
 	"example.com/fastly-soundscape/internal/output"
+	"example.com/fastly-soundscape/internal/sampler"
 	"example.com/fastly-soundscape/internal/synth"
 	"example.com/fastly-soundscape/internal/theme"
 )
+
+const sampleRate = 44100
 
 func main() {
 	var (
 		serviceID = flag.String("service-id", os.Getenv("FASTLY_SERVICE_ID"), "Fastly service ID")
 		token     = flag.String("token", os.Getenv("FASTLY_API_TOKEN"), "Fastly API token")
-		themePath = flag.String("theme", "themes/forest.yaml", "theme YAML file")
-		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont")
+		themePath = flag.String("theme", "themes/forest/theme.yaml", "theme YAML file")
+		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, for note/cc-output sounds")
 		simulate  = flag.Bool("simulate", false, "use generated telemetry instead of Fastly")
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
@@ -31,16 +34,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var out output.Output = output.NewConsole()
-
-	if *soundFont != "" {
-		sf, err := synth.NewSoundFontOutput(*soundFont)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer sf.Close()
-		out = sf
+	out, closeOutput, err := buildOutput(th, *soundFont)
+	if err != nil {
+		log.Fatal(err)
 	}
+	defer closeOutput()
 
 	var engine *theme.Engine
 	if *seed != 0 {
@@ -81,6 +79,72 @@ func main() {
 		timestamp = resp.Timestamp
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// buildOutput assembles whichever output backends the theme and flags call
+// for: the WAV sample player is started automatically whenever the theme
+// references any sample_group (no flag needed, so a sample-only theme is
+// self-contained), and the SoundFont backend is added if --soundfont is
+// given. A theme can use both at once (e.g. sampled birds alongside a
+// SoundFont-driven instrument). With neither, falls back to the Console
+// backend so the theme can still be exercised with no audio at all.
+func buildOutput(th theme.Theme, soundFontPath string) (output.Output, func(), error) {
+	var outs []output.Output
+	var closers []func()
+
+	if groups := sampleGroups(th); len(groups) > 0 {
+		player, err := sampler.NewPlayer(sampleRate)
+		if err != nil {
+			return nil, nil, fmt.Errorf("starting sample player: %w", err)
+		}
+		for _, dir := range groups {
+			if err := player.LoadGroup(dir, dir); err != nil {
+				player.Close()
+				return nil, nil, fmt.Errorf("loading sample group %s: %w", dir, err)
+			}
+		}
+		outs = append(outs, player)
+		closers = append(closers, player.Close)
+	}
+
+	if soundFontPath != "" {
+		sf, err := synth.NewSoundFontOutput(soundFontPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("starting SoundFont output: %w", err)
+		}
+		outs = append(outs, sf)
+		closers = append(closers, sf.Close)
+	}
+
+	if len(outs) == 0 {
+		outs = append(outs, output.NewConsole())
+	}
+
+	closeAll := func() {
+		for _, c := range closers {
+			c()
+		}
+	}
+
+	if len(outs) == 1 {
+		return outs[0], closeAll, nil
+	}
+	return output.NewMulti(outs...), closeAll, nil
+}
+
+// sampleGroups returns the distinct sample_group directories a theme
+// references, in a stable order.
+func sampleGroups(th theme.Theme) []string {
+	seen := make(map[string]bool)
+	var groups []string
+	for _, sound := range th.Sounds {
+		if sound.SampleGroup == "" || seen[sound.SampleGroup] {
+			continue
+		}
+		seen[sound.SampleGroup] = true
+		groups = append(groups, sound.SampleGroup)
+	}
+	return groups
 }
 
 func runSimulation(engine *theme.Engine) {

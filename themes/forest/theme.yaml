@@ -1,0 +1,114 @@
+name: forest-glade
+
+# Sources turn raw Fastly measurements into slowly changing 0..1 values.
+sources:
+  - name: requests
+    metric: requests
+    smoothing: 8
+    normalise:
+      min: 1
+      max: 5000
+
+  - name: bandwidth
+    metric: resp_body_bytes
+    smoothing: 20
+    normalise:
+      min: 1000
+      max: 50000000
+
+  - name: errors
+    metric: errors
+    smoothing: 5
+    normalise:
+      min: 0
+      max: 50
+
+# A theme is a collection of behaviours.
+#
+# type: probabilistic
+#   rate is an expected number of events per second (a Poisson process),
+#   not a per-tick probability - a tick can produce zero, one, or several.
+#
+# type: continuous
+#   ramps a normalised value into min_value..max_value.
+#
+# output: note | cc (default)
+#   emits a MIDI-style event for the SoundFont backend.
+#
+# output: sample | sample_loop
+#   emits an event.Sample for the WAV sample player (internal/sampler).
+#   sample_loop starts a persistent, continuously-playing layer whose gain
+#   is the ramped min_value..max_value; two sample_loop sounds sharing a
+#   metric with opposite ramps crossfade against each other (see
+#   river-gentle/river-rushing below).
+#
+# sample_group paths are relative to this file.
+
+sounds:
+  - name: birds
+    type: probabilistic
+    output: sample
+    source: requests
+    rate:
+      min: 0.03
+      max: 2.5
+    velocity:
+      min: 0.5
+      max: 1.0
+    duration_ms: 180
+    sample_group: samples/birds
+    pitch_jitter:
+      min: 0.9
+      max: 1.15
+
+  # The river is built from two looping layers with opposing gain ramps, so
+  # raising bandwidth crossfades from a gentle trickle to a rushing torrent
+  # instead of just getting louder.
+  - name: river-gentle
+    type: continuous
+    output: sample_loop
+    source: bandwidth
+    sample_group: samples/river-gentle
+    min_value: 1
+    max_value: 0
+
+  - name: river-rushing
+    type: continuous
+    output: sample_loop
+    source: bandwidth
+    sample_group: samples/river-rushing
+    min_value: 0
+    max_value: 1
+
+  # Occasional splashes add texture as the river gets more turbulent.
+  - name: splash
+    type: probabilistic
+    output: sample
+    source: bandwidth
+    rate:
+      min: 0.05
+      max: 3
+    velocity:
+      min: 0.4
+      max: 0.9
+    duration_ms: 150
+    sample_group: samples/splash
+    pitch_jitter:
+      min: 0.85
+      max: 1.2
+
+  - name: woodpecker
+    type: probabilistic
+    output: sample
+    source: errors
+    rate:
+      min: 0.005
+      max: 1.2
+    velocity:
+      min: 0.5
+      max: 1.0
+    duration_ms: 300
+    sample_group: samples/woodpecker
+    pitch_jitter:
+      min: 0.95
+      max: 1.1

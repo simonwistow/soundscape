@@ -132,3 +132,99 @@ func TestEngineSkipsLongGapEventFlood(t *testing.T) {
 		t.Fatalf("expected clamped tick to bound event flood, got %d note events", noteEvents)
 	}
 }
+
+func TestEngineSampleOutputEmitsSampleEvents(t *testing.T) {
+	th := Theme{
+		Name: "test",
+		Sources: []Source{
+			{Name: "requests", Metric: "requests", Smoothing: 1, Normalise: &Range{Min: 0, Max: 1000}},
+		},
+		Sounds: []Sound{
+			{
+				Name:        "birds",
+				Type:        "probabilistic",
+				Output:      "sample",
+				Source:      "requests",
+				Rate:        &Rate{Min: 3, Max: 3},
+				Velocity:    &Range{Min: 0.6, Max: 0.9},
+				DurationMs:  150,
+				SampleGroup: "samples/birds",
+				PitchJitter: &Range{Min: 0.9, Max: 1.1},
+			},
+		},
+	}
+
+	out := &recordingOutput{}
+	engine := NewEngineWithSeed(th, out, 1)
+	engine.Process(0, map[string]float64{"requests": 500})
+	engine.Process(1, map[string]float64{"requests": 500})
+
+	if len(out.events) == 0 {
+		t.Fatalf("expected at least one sample event")
+	}
+	for _, e := range out.events {
+		s, ok := e.(event.Sample)
+		if !ok {
+			t.Fatalf("expected event.Sample, got %T", e)
+		}
+		if s.Loop {
+			t.Fatalf("probabilistic sample sound should not set Loop")
+		}
+		if s.Group != th.Sounds[0].SampleGroup {
+			t.Fatalf("Group = %q, want %q", s.Group, th.Sounds[0].SampleGroup)
+		}
+		if s.Pitch < 0.9 || s.Pitch > 1.1 {
+			t.Fatalf("Pitch = %v, want within pitch_jitter range", s.Pitch)
+		}
+	}
+}
+
+func TestEngineSampleLoopEmitsLoopEvents(t *testing.T) {
+	th := Theme{
+		Name: "test",
+		Sources: []Source{
+			{Name: "bandwidth", Metric: "bandwidth", Smoothing: 1, Normalise: &Range{Min: 0, Max: 1000}},
+		},
+		Sounds: []Sound{
+			{
+				Name:        "river-gentle",
+				Type:        "continuous",
+				Output:      "sample_loop",
+				Source:      "bandwidth",
+				SampleGroup: "samples/river-gentle",
+				MinValue:    1,
+				MaxValue:    0,
+			},
+			{
+				Name:        "river-rushing",
+				Type:        "continuous",
+				Output:      "sample_loop",
+				Source:      "bandwidth",
+				SampleGroup: "samples/river-rushing",
+				MinValue:    0,
+				MaxValue:    1,
+			},
+		},
+	}
+
+	out := &recordingOutput{}
+	engine := NewEngineWithSeed(th, out, 1)
+	engine.Process(0, map[string]float64{"bandwidth": 900}) // value ~= 0.9
+
+	if len(out.events) != 2 {
+		t.Fatalf("expected 2 loop events, got %d", len(out.events))
+	}
+
+	gentle := out.events[0].(event.Sample)
+	rushing := out.events[1].(event.Sample)
+
+	if !gentle.Loop || !rushing.Loop {
+		t.Fatalf("expected both sample_loop sounds to set Loop=true")
+	}
+	if gentle.Velocity > 0.2 {
+		t.Fatalf("gentle layer gain should fall as bandwidth rises, got %v", gentle.Velocity)
+	}
+	if rushing.Velocity < 0.8 {
+		t.Fatalf("rushing layer gain should rise with bandwidth, got %v", rushing.Velocity)
+	}
+}
