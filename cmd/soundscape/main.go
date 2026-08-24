@@ -31,6 +31,7 @@ func main() {
 		simulate  = flag.Bool("simulate", false, "use generated telemetry instead of Fastly")
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
+		watch     = flag.Bool("watch", true, "reload the theme file automatically when it changes")
 	)
 	flag.Parse()
 
@@ -39,7 +40,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	out, closeOutput, err := buildOutput(th, *soundFont)
+	out, player, closeOutput, err := buildOutput(th, *soundFont)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -50,6 +51,10 @@ func main() {
 		engine = theme.NewEngineWithSeed(th, out, *seed)
 	} else {
 		engine = theme.NewEngine(th, out)
+	}
+
+	if *watch {
+		go watchTheme(*themePath, engine, player)
 	}
 
 	if *simulate {
@@ -124,29 +129,31 @@ func runValidate(args []string) {
 // given. A theme can use both at once (e.g. sampled birds alongside a
 // SoundFont-driven instrument). With neither, falls back to the Console
 // backend so the theme can still be exercised with no audio at all.
-func buildOutput(th theme.Theme, soundFontPath string) (output.Output, func(), error) {
+func buildOutput(th theme.Theme, soundFontPath string) (output.Output, *sampler.Player, func(), error) {
 	var outs []output.Output
 	var closers []func()
+	var player *sampler.Player
 
 	if groups := sampleGroups(th); len(groups) > 0 {
-		player, err := sampler.NewPlayer(sampleRate)
+		p, err := sampler.NewPlayer(sampleRate)
 		if err != nil {
-			return nil, nil, fmt.Errorf("starting sample player: %w", err)
+			return nil, nil, nil, fmt.Errorf("starting sample player: %w", err)
 		}
 		for _, dir := range groups {
-			if err := player.LoadGroup(dir, dir); err != nil {
-				player.Close()
-				return nil, nil, fmt.Errorf("loading sample group %s: %w", dir, err)
+			if err := p.LoadGroup(dir, dir); err != nil {
+				p.Close()
+				return nil, nil, nil, fmt.Errorf("loading sample group %s: %w", dir, err)
 			}
 		}
-		outs = append(outs, player)
-		closers = append(closers, player.Close)
+		player = p
+		outs = append(outs, p)
+		closers = append(closers, p.Close)
 	}
 
 	if soundFontPath != "" {
 		sf, err := synth.NewSoundFontOutput(soundFontPath)
 		if err != nil {
-			return nil, nil, fmt.Errorf("starting SoundFont output: %w", err)
+			return nil, nil, nil, fmt.Errorf("starting SoundFont output: %w", err)
 		}
 		outs = append(outs, sf)
 		closers = append(closers, sf.Close)
@@ -163,9 +170,63 @@ func buildOutput(th theme.Theme, soundFontPath string) (output.Output, func(), e
 	}
 
 	if len(outs) == 1 {
-		return outs[0], closeAll, nil
+		return outs[0], player, closeAll, nil
 	}
-	return output.NewMulti(outs...), closeAll, nil
+	return output.NewMulti(outs...), player, closeAll, nil
+}
+
+// watchTheme polls path for modifications and hot-reloads it into engine
+// when it changes: the theme is re-loaded and validated, any sample groups
+// it references are (re)loaded into player (if the theme uses one), and
+// only if all of that succeeds is it applied. An invalid or broken edit is
+// logged and ignored, leaving the previous theme running rather than
+// crashing or going silent mid-installation.
+func watchTheme(path string, engine *theme.Engine, player *sampler.Player) {
+	var lastMod time.Time
+	if info, err := os.Stat(path); err == nil {
+		lastMod = info.ModTime()
+	}
+
+	for range time.Tick(time.Second) {
+		info, err := os.Stat(path)
+		if err != nil || !info.ModTime().After(lastMod) {
+			continue
+		}
+		lastMod = info.ModTime()
+
+		newTheme, err := theme.Load(path)
+		if err != nil {
+			log.Printf("hot reload: %s: %v (keeping previous theme)", path, err)
+			continue
+		}
+
+		if issues := theme.Validate(newTheme); len(issues) > 0 {
+			log.Printf("hot reload: %s: %d problem(s) found, keeping previous theme:", path, len(issues))
+			for _, issue := range issues {
+				log.Printf("  - %v", issue)
+			}
+			continue
+		}
+
+		if player != nil {
+			if err := reloadSampleGroups(player, newTheme); err != nil {
+				log.Printf("hot reload: %s: %v (keeping previous theme)", path, err)
+				continue
+			}
+		}
+
+		engine.Reload(newTheme)
+		log.Printf("hot reload: %s: reloaded (%d sources, %d sounds)", path, len(newTheme.Sources), len(newTheme.Sounds))
+	}
+}
+
+func reloadSampleGroups(player *sampler.Player, th theme.Theme) error {
+	for _, dir := range sampleGroups(th) {
+		if err := player.LoadGroup(dir, dir); err != nil {
+			return fmt.Errorf("sample group %s: %w", dir, err)
+		}
+	}
+	return nil
 }
 
 // sampleGroups returns the distinct sample_group directories a theme

@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"example.com/fastly-soundscape/internal/event"
@@ -70,6 +71,7 @@ type Rate struct {
 }
 
 type Engine struct {
+	mu        sync.Mutex
 	theme     Theme
 	output    output.Output
 	smoothers map[string]*metrics.Smoother
@@ -113,25 +115,50 @@ func NewEngine(t Theme, out output.Output) *Engine {
 // NewEngineWithSeed builds an Engine with a fixed random seed, so that
 // probabilistic behaviours (and tests that depend on them) are reproducible.
 func NewEngineWithSeed(t Theme, out output.Output, seed int64) *Engine {
-	s := make(map[string]*metrics.Smoother)
+	return &Engine{
+		theme:     t,
+		output:    out,
+		smoothers: buildSmoothers(t, nil),
+		last:      make(map[string]float64),
+		rng:       rand.New(rand.NewSource(seed)),
+	}
+}
+
+// buildSmoothers creates a Smoother per source, reusing an existing one (and
+// so its running average) for any source whose name is unchanged, and
+// creating a fresh one otherwise. previous may be nil.
+func buildSmoothers(t Theme, previous map[string]*metrics.Smoother) map[string]*metrics.Smoother {
+	s := make(map[string]*metrics.Smoother, len(t.Sources))
 	for _, source := range t.Sources {
+		if existing, ok := previous[source.Name]; ok {
+			s[source.Name] = existing
+			continue
+		}
 		seconds := source.Smoothing
 		if seconds <= 0 {
 			seconds = 1
 		}
 		s[source.Name] = metrics.NewSmoother(seconds)
 	}
+	return s
+}
 
-	return &Engine{
-		theme:     t,
-		output:    out,
-		smoothers: s,
-		last:      make(map[string]float64),
-		rng:       rand.New(rand.NewSource(seed)),
-	}
+// Reload swaps in a new theme definition (e.g. for hot-reloading an edited
+// theme file) without losing in-flight smoothing state for sources that are
+// still present under the same name. It's the caller's responsibility to
+// validate the new theme first (see Validate) — Reload doesn't check.
+func (e *Engine) Reload(t Theme) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.smoothers = buildSmoothers(t, e.smoothers)
+	e.theme = t
+	e.last = make(map[string]float64)
 }
 
 func (e *Engine) Process(timestamp int64, raw map[string]float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	dt := 1.0
 	if e.lastTick != 0 {
 		if d := float64(timestamp - e.lastTick); d > 0 {

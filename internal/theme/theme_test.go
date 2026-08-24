@@ -133,6 +133,55 @@ func TestEngineSkipsLongGapEventFlood(t *testing.T) {
 	}
 }
 
+func TestEngineReloadAppliesNewTheme(t *testing.T) {
+	out := &recordingOutput{}
+	engine := NewEngineWithSeed(testTheme(), out, 1)
+	engine.Process(0, map[string]float64{"requests": 500})
+
+	reloaded := testTheme()
+	reloaded.Sounds[1].Controller = 99 // change the river's CC controller
+	engine.Reload(reloaded)
+
+	out.events = nil
+	engine.Process(1, map[string]float64{"requests": 500})
+
+	found := false
+	for _, e := range out.events {
+		if c, ok := e.(event.Control); ok && c.Actor == "river" {
+			found = true
+			if c.Controller != 99 {
+				t.Fatalf("Controller = %d, want 99 after reload", c.Controller)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected a river control event after reload")
+	}
+}
+
+func TestEngineReloadPreservesSmootherState(t *testing.T) {
+	out := &recordingOutput{}
+	engine := NewEngineWithSeed(testTheme(), out, 1)
+
+	// Feed enough ticks that the smoothed "requests" value has moved well
+	// away from its initial value.
+	for i := 0; i < 20; i++ {
+		engine.Process(int64(i), map[string]float64{"requests": 900})
+	}
+	before := engine.smoothers["requests"].Update(900) // peek without perturbing much
+
+	engine.Reload(testTheme())
+	after := engine.smoothers["requests"]
+
+	if after == nil {
+		t.Fatalf("expected the requests smoother to survive reload")
+	}
+	got := after.Update(900)
+	if diff := got - before; diff < -0.05 || diff > 0.05 {
+		t.Fatalf("smoother state was reset by reload: before=%v after=%v", before, got)
+	}
+}
+
 func TestEngineSampleOutputEmitsSampleEvents(t *testing.T) {
 	th := Theme{
 		Name: "test",

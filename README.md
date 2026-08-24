@@ -61,6 +61,10 @@ values, missing sample directories, unknown behaviour/output kinds):
 
     go run ./cmd/soundscape validate themes/forest/theme.yaml
 
+Edit `theme.yaml` while a run is going and it hot-reloads automatically (checked once a second,
+validated before being applied — an invalid edit is logged and ignored rather than crashing or
+going silent). Disable with `--watch=false`.
+
 ## Fastly API
 
 The client uses the real-time analytics endpoint:
