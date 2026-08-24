@@ -1,0 +1,8 @@
+/bin/
+*.exe
+*.test
+*.sf2
+*.wav
+.DS_Store
+.claude/settings.local.json
+.claude/.cc-writes/
