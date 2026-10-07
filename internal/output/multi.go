@@ -1,6 +1,6 @@
 package output
 
-import "example.com/fastly-soundscape/internal/event"
+import "github.com/simonwistow/soundscape/internal/event"
 
 // Multi fans an event out to several backends, e.g. a theme that plays
 // birds through a SoundFont while a river runs through the sample player.

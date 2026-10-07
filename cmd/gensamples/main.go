@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"example.com/fastly-soundscape/internal/sampler"
+	"github.com/simonwistow/soundscape/internal/sampler"
 )
 
 const sampleRate = 44100

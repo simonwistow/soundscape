@@ -3,7 +3,7 @@ package theme
 import (
 	"testing"
 
-	"example.com/fastly-soundscape/internal/event"
+	"github.com/simonwistow/soundscape/internal/event"
 )
 
 type recordingOutput struct {

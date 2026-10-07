@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"example.com/fastly-soundscape/internal/event"
-	"example.com/fastly-soundscape/internal/metrics"
-	"example.com/fastly-soundscape/internal/output"
-	"example.com/fastly-soundscape/internal/scheduler"
+	"github.com/simonwistow/soundscape/internal/event"
+	"github.com/simonwistow/soundscape/internal/metrics"
+	"github.com/simonwistow/soundscape/internal/output"
+	"github.com/simonwistow/soundscape/internal/scheduler"
 	"gopkg.in/yaml.v3"
 )
 

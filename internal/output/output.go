@@ -7,7 +7,7 @@ package output
 import (
 	"fmt"
 
-	"example.com/fastly-soundscape/internal/event"
+	"github.com/simonwistow/soundscape/internal/event"
 )
 
 type Output interface {

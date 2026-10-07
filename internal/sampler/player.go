@@ -14,8 +14,8 @@ import (
 
 	"github.com/ebitengine/oto/v3"
 
-	"example.com/fastly-soundscape/internal/audio"
-	"example.com/fastly-soundscape/internal/event"
+	"github.com/simonwistow/soundscape/internal/audio"
+	"github.com/simonwistow/soundscape/internal/event"
 )
 
 // maxOneShotVoices bounds simultaneous one-shot playback; beyond this the

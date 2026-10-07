@@ -11,8 +11,8 @@ import (
 	"github.com/ebitengine/oto/v3"
 	"github.com/sinshu/go-meltysynth/meltysynth"
 
-	"example.com/fastly-soundscape/internal/audio"
-	"example.com/fastly-soundscape/internal/event"
+	"github.com/simonwistow/soundscape/internal/audio"
+	"github.com/simonwistow/soundscape/internal/event"
 )
 
 type SoundFontOutput struct {

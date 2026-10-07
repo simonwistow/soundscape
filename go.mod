@@ -1,4 +1,4 @@
-module example.com/fastly-soundscape
+module github.com/simonwistow/soundscape
 
 go 1.24.0
 

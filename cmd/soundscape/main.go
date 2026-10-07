@@ -10,12 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"example.com/fastly-soundscape/internal/fastly"
-	"example.com/fastly-soundscape/internal/midi"
-	"example.com/fastly-soundscape/internal/output"
-	"example.com/fastly-soundscape/internal/sampler"
-	"example.com/fastly-soundscape/internal/synth"
-	"example.com/fastly-soundscape/internal/theme"
+	"github.com/simonwistow/soundscape/internal/fastly"
+	"github.com/simonwistow/soundscape/internal/midi"
+	"github.com/simonwistow/soundscape/internal/output"
+	"github.com/simonwistow/soundscape/internal/sampler"
+	"github.com/simonwistow/soundscape/internal/synth"
+	"github.com/simonwistow/soundscape/internal/theme"
 )
 
 const sampleRate = 44100

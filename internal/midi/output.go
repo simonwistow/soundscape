@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"example.com/fastly-soundscape/internal/event"
+	"github.com/simonwistow/soundscape/internal/event"
 )
 
 // VirtualOutput is an output.Output backed by a Writer: it captures a
