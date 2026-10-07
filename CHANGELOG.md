@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-07
+
 ### Added
 
 - Data sources:
@@ -30,4 +32,5 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - There is no live MIDI device output yet, only MIDI files.
 - On Linux, audio goes through ALSA, so `libasound2` must be installed.
 
-[Unreleased]: https://github.com/simonwistow/soundscape/commits/main
+[Unreleased]: https://github.com/simonwistow/soundscape/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/simonwistow/soundscape/releases/tag/v0.1.0
