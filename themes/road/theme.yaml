@@ -1,0 +1,79 @@
+name: busy-road
+
+# A road, from a quiet Sunday street to a roaring highway. Uses the
+# conventional inputs (see mappings/ for what feeds them):
+#   activity -> the traffic bed, quiet street to busy highway
+#   flow     -> motorbikes passing
+#   quirks   -> car horns
+#   trouble  -> tyre screeches
+#
+# See themes/forest/theme.yaml and DEVELOPMENT.md for the full type/output
+# vocabulary. sample_group paths are relative to this file.
+
+sounds:
+  # Two looping layers with opposing gain ramps, so more activity crossfades
+  # from a quiet street into a busy highway instead of just getting louder.
+  - name: traffic-quiet
+    type: continuous
+    output: sample_loop
+    input: activity
+    sample_group: samples/traffic-quiet
+    min_value: 1
+    max_value: 0
+
+  - name: traffic-busy
+    type: continuous
+    output: sample_loop
+    input: activity
+    sample_group: samples/traffic-busy
+    min_value: 0
+    max_value: 1
+
+  # duration_ms is longer than the clip so the whole pass-by plays out.
+  - name: motorbike
+    type: probabilistic
+    output: sample
+    input: flow
+    rate:
+      min: 0.01
+      max: 0.35
+    velocity:
+      min: 0.35
+      max: 0.8
+    duration_ms: 4000
+    sample_group: samples/motorbike
+    pitch_jitter:
+      min: 0.85
+      max: 1.2
+
+  - name: horn
+    type: probabilistic
+    output: sample
+    input: quirks
+    rate:
+      min: 0.005
+      max: 0.8
+    velocity:
+      min: 0.35
+      max: 0.75
+    duration_ms: 600
+    sample_group: samples/horn
+    pitch_jitter:
+      min: 0.9
+      max: 1.12
+
+  - name: screech
+    type: probabilistic
+    output: sample
+    input: trouble
+    rate:
+      min: 0.003
+      max: 0.3
+    velocity:
+      min: 0.75
+      max: 1.0
+    duration_ms: 1600
+    sample_group: samples/screech
+    pitch_jitter:
+      min: 0.92
+      max: 1.08

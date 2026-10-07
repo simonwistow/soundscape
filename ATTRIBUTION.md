@@ -1,8 +1,8 @@
 # Sample attribution
 
 The procedurally-generated placeholder samples (`cmd/gensamples`) have been replaced with real
-recordings, all sourced from Wikimedia Commons (originally from pdsounds.org or uploaded as own
-work). Each was trimmed, converted to 16-bit PCM WAV, and — for the four looping beds — given a
+recordings, sourced from Wikimedia Commons (originally from pdsounds.org or uploaded as own
+work) and, where Commons had nothing suitable, CC0 recordings from Freesound. Each was trimmed, converted to 16-bit PCM WAV, and — for the four looping beds — given a
 short crossfade at the loop point; the crowd/chatter layers also got light EQ/gain shaping and
 (for the chatter one-shots) a small per-clip pitch shift for variety. None of that editing
 changes the underlying recording's character.
@@ -26,6 +26,18 @@ changes the underlying recording's character.
 | `bottles` | [Wine glass.ogg](https://commons.wikimedia.org/wiki/File:Wine_glass.ogg) | hugh | Public domain |
 | `accordion` | [Accordion registers.ogg](https://commons.wikimedia.org/wiki/File:Accordion_registers.ogg) | Necz0r | Public domain |
 
+## themes/road
+
+| Sample group | Source file | Author | License |
+|---|---|---|---|
+| `traffic-quiet` | [Sunday in the city street noise1.ogg](https://commons.wikimedia.org/wiki/File:Sunday_in_the_city_street_noise1.ogg) | cori | Public domain |
+| `traffic-busy` | [Highway from bridge center.ogg](https://commons.wikimedia.org/wiki/File:Highway_from_bridge_center.ogg) | stephan | Public domain |
+| `motorbike` | [Motorbike 1.ogg](https://commons.wikimedia.org/wiki/File:Motorbike_1.ogg) | ezwa | Public domain |
+| `horn` | [Car Horn.wav](https://commons.wikimedia.org/wiki/File:Car_Horn.wav) | 15HPanska_Ruttner_Jan | CC0 |
+| `screech` | [Tire.ogg](https://freesound.org/people/egomassive/sounds/536769/) (Freesound, from its high-quality MP3 preview) | egomassive | CC0 |
+
+The screech was also given about 7 dB of gain into a limiter so it carries over the highway bed.
+
 ## The one non-public-domain asset
 
 `themes/forest/samples/river-rushing/loop.wav` derives from Benzband's "Water fall.ogg", licensed
@@ -43,7 +55,7 @@ public-domain source instead (see DEVELOPMENT.md for how sample groups are wired
 
 ## Procedural placeholders
 
-Every sample group in both themes now uses a real recording rather than `cmd/gensamples`'
+Every sample group in all three themes uses a real recording rather than `cmd/gensamples`'
 procedurally-synthesized placeholders. That tool is still available (`go run ./cmd/gensamples
 --theme forest|market`) as a zero-dependency fallback — e.g. for bootstrapping a brand new theme
 before sourcing real assets, or regenerating a group if a licensing concern comes up later. The

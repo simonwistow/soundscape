@@ -1,7 +1,7 @@
 # Soundscape
 
 A Go-based generative soundscape driven by live telemetry. Busy systems sound like a busy forest
-(or market, or...): more traffic, more birdsong; more data flowing, a more turbulent river.
+(or market, or road): more traffic, more birdsong; more data flowing, a more turbulent river.
 
     data source (simulation, Fastly, Prometheus, Wikipedia edits, ...)
           |
@@ -35,9 +35,10 @@ Listen to Wikipedia being edited, live (no account needed):
 
     go run ./cmd/soundscape --aliases wikipedia
 
-Try the other example theme:
+Try the other example themes:
 
     go run ./cmd/soundscape --aliases wikipedia --theme themes/market/theme.yaml
+    go run ./cmd/soundscape --aliases wikipedia --theme themes/road/theme.yaml
 
 ## Data sources
 
@@ -83,12 +84,12 @@ input comes from and how it's scaled:
 Input names are free, but the bundled themes and mappings use a conventional set, so they
 interoperate:
 
-| Input      | Meaning                    | Fastly           | Wikipedia       | Forest      | Market       |
-|------------|----------------------------|------------------|-----------------|-------------|--------------|
-| `activity` | how much is happening      | `requests`       | `edits`         | birdsong    | crowd, chatter |
-| `flow`     | how much is moving through | `resp_body_bytes`| `bytes_changed` | river, splashes | accordion |
-| `trouble`  | things going wrong         | `errors`         | `log_delete`    | –           | dropped bottles |
-| `quirks`   | minor oddities             | `all_status_4xx` | `new_pages`     | woodpecker  | –            |
+| Input      | Meaning                    | Fastly           | Wikipedia       | Forest      | Market       | Road |
+|------------|----------------------------|------------------|-----------------|-------------|--------------|------|
+| `activity` | how much is happening      | `requests`       | `edits`         | birdsong    | crowd, chatter | traffic, quiet street to highway |
+| `flow`     | how much is moving through | `resp_body_bytes`| `bytes_changed` | river, splashes | accordion | motorbikes |
+| `trouble`  | things going wrong         | `errors`         | `log_delete`    | –           | dropped bottles | tyre screeches |
+| `quirks`   | minor oddities             | `all_status_4xx` | `new_pages`     | woodpecker  | –            | car horns |
 
 An input the mapping doesn't provide reads as 0 (with a warning at startup).
 
@@ -144,8 +145,8 @@ changing Prometheus queries, needs a restart. Disable with `--watch=false`.
   never depends on a specific output backend
 * a real WAV sample player (`internal/sampler`): pitch shifting, velocity/pan, looping, click-free
   envelopes, voice stealing, and gain-smoothed crossfades between looping layers
-* two complete example themes, `forest-glade` and `farmers-market`, using real recordings (see
-  ATTRIBUTION.md), so no SoundFont or external assets are needed to hear something
+* three complete example themes, `forest-glade`, `farmers-market` and `busy-road`, using real
+  recordings (see ATTRIBUTION.md), so no SoundFont or external assets are needed to hear something
 * an optional SoundFont backend (Go-MeltySynth) for `note`/`cc`-output sounds
 * an optional virtual MIDI backend: writes `note`/`cc`-output sounds as a real, playable Standard
   MIDI File. There's no live device support yet (that needs cgo; see `internal/midi`'s package doc)
@@ -196,9 +197,8 @@ text-only Console backend.
 
 ## Next steps
 
-1. A third theme: a busy road (traffic bed plus horns, motorbikes, screeching tyres).
-2. Add a live MIDI output backend (cgo + RtMidi, behind a build tag; see `internal/midi`'s
+1. Add a live MIDI output backend (cgo + RtMidi, behind a build tag; see `internal/midi`'s
    package doc for why that's a bigger step than everything else here).
-3. Add richer stochastic actors such as flocks, crowds and weather.
-4. Add MIDI 2.0/OSC output.
-5. Embed themes, mappings and optionally assets into a single distributable binary.
+2. Add richer stochastic actors such as flocks, crowds and weather.
+3. Add MIDI 2.0/OSC output.
+4. Embed themes, mappings and optionally assets into a single distributable binary.
