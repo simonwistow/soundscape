@@ -1,0 +1,135 @@
+name: release
+
+# Pushing a version tag releases it. See RELEASING.md for the steps before
+# that, which come down to: run `changelog release`, commit, tag, push.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  changelog:
+    name: check the changelog
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # A tag with no changelog entry is almost always a mistake: either the
+      # release was never written up, or the tag has the wrong number.
+      - name: CHANGELOG.md has a section for ${{ github.ref_name }}
+        run: go run ./internal/cmd/changelog check "$GITHUB_REF_NAME"
+
+      - name: Release notes from CHANGELOG.md
+        run: go run ./internal/cmd/changelog notes "$GITHUB_REF_NAME" > release-notes.md
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  build:
+    name: build (${{ matrix.platform }})
+    needs: changelog
+    strategy:
+      matrix:
+        include:
+          # Not the newest runner, so the binary needs only the glibc of
+          # Ubuntu 24.04 (2.39) or later rather than of whatever is newest.
+          - os: ubuntu-24.04
+            platform: linux-amd64
+          - os: macos-latest
+            platform: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # As in ci.yml: Oto links ALSA through cgo on Linux only.
+      - if: runner.os == 'Linux'
+        name: Install ALSA headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test
+        run: go test ./...
+
+      - name: Build
+        run: >
+          go build -trimpath
+          -ldflags "-s -w -X main.version=$GITHUB_REF_NAME"
+          -o soundscape ./cmd/soundscape
+
+      # The binary looks for themes/ and mappings/ relative to where it is
+      # run, so they ship alongside it and the bundle is run from its own
+      # directory.
+      - name: Bundle
+        run: |
+          name="soundscape-$GITHUB_REF_NAME-${{ matrix.platform }}"
+          mkdir -p "dist/$name"
+          cp soundscape README.md CHANGELOG.md ATTRIBUTION.md "dist/$name/"
+          cp -R themes mappings "dist/$name/"
+          .github/scripts/smoke.sh ./soundscape "dist/$name"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+
+      # The smoke test above ran on the runner. This checks nothing else is
+      # missing, on a system with none of the runner's extras: only the ALSA
+      # runtime library, which is the one thing the README asks Linux users
+      # to have (libasound2t64 is its name from Ubuntu 24.04 on).
+      - if: runner.os == 'Linux'
+        name: Run in a clean Ubuntu 24.04
+        run: >
+          docker run --rm -v "$PWD:/src:ro" -w "/src/dist/soundscape-$GITHUB_REF_NAME-${{ matrix.platform }}"
+          ubuntu:24.04 sh -c
+          'apt-get update -qq && apt-get install -y -qq libasound2t64 >/dev/null &&
+          /src/.github/scripts/smoke.sh ./soundscape'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: publish
+    needs: build
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+
+      # A tag such as v1.0.0-rc1 is a pre-release, as semver has it.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag "${flags[@]}" \
+            --title "soundscape $GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            dist/*

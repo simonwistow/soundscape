@@ -24,7 +24,14 @@ played from any source. Both are YAML, not Go code.
 
 ## Quick start
 
-Install Go 1.23+.
+Download a prebuilt release for Linux x86-64 or macOS on Apple silicon from the
+[releases page](https://github.com/simonwistow/soundscape/releases), unpack it, and run
+`./soundscape` from inside the unpacked directory (it finds `themes/` and `mappings/` there). The
+Linux build needs Ubuntu 24.04 or later (glibc 2.39) and the ALSA library (`libasound2`, packaged
+as `libasound2t64` on Ubuntu 24.04+).
+
+Or build from source, with Go 1.24+ (and, on Linux, the ALSA headers: `libasound2-dev`). The
+examples below use `go run`:
 
 Run it. With no other options this plays the forest theme from a built-in simulation that
 cycles slowly between quiet and busy:
@@ -177,6 +184,7 @@ real recordings are ready:
     internal/midi        virtual (file-based) MIDI output backend
     cmd/soundscape       CLI
     cmd/gensamples       placeholder sample asset generator
+    internal/cmd/changelog  CHANGELOG.md linting and release tooling (see RELEASING.md)
     mappings/            bundled mappings, one per source
     themes/              bundled themes
 

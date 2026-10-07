@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,9 +28,15 @@ import (
 const sampleRate = 44100
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "validate" {
-		runValidate(os.Args[2:])
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "validate":
+			runValidate(os.Args[2:])
+			return
+		case "version", "--version":
+			fmt.Println("soundscape", buildVersion())
+			return
+		}
 	}
 
 	var (
@@ -135,6 +142,21 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+// version is set by release builds with -ldflags "-X main.version=v1.2.3".
+var version string
+
+// buildVersion reports which soundscape this is: the release it was built
+// as, else the module version `go install ...@v1.2.3` records, else "devel".
+func buildVersion() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "devel"
 }
 
 // loadMapping loads and validates a mapping file, applying a --source

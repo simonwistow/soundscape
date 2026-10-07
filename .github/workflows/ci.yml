@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tidy:
+    name: format and tidy
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Everything in this job is deliberately cgo-free so it reports in
+      # seconds, rather than waiting on the test matrix to tell you about a
+      # stray tab.
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "needs gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # Caught here, on every push, rather than when a release tag is
+      # refused for it.
+      - name: CHANGELOG.md follows Keep a Changelog
+        run: go run ./internal/cmd/changelog lint
+
+      - name: go mod tidy
+        run: |
+          go mod tidy
+          if ! git diff --quiet go.mod go.sum; then
+            echo "go mod tidy changed go.mod or go.sum:"
+            git --no-pager diff go.mod go.sum
+            exit 1
+          fi
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Oto, the audio output library, talks to ALSA through cgo on Linux.
+      # On macOS it reaches CoreAudio without cgo and needs nothing.
+      - if: runner.os == 'Linux'
+        name: Install ALSA headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -race ./...
+
+      - name: build the command
+        run: go build -o soundscape ./cmd/soundscape
+
+      # Proof the binary links and runs, and that every bundled theme
+      # (samples included) works with every bundled mapping.
+      - name: smoke test
+        run: .github/scripts/smoke.sh ./soundscape
