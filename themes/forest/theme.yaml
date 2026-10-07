@@ -1,36 +1,12 @@
 name: forest-glade
 
-# Sources turn raw Fastly measurements into slowly changing 0..1 values.
-sources:
-  - name: requests
-    metric: requests
-    smoothing: 8
-    normalise:
-      min: 1
-      max: 5000
-
-  - name: bandwidth
-    metric: resp_body_bytes
-    smoothing: 20
-    normalise:
-      min: 1000
-      max: 50000000
-
-  - name: errors
-    metric: errors
-    smoothing: 5
-    normalise:
-      min: 0
-      max: 50
-
-  - name: 4xx
-    metric: all_status_4xx
-    smoothing: 1
-    normalise:
-      min: 0
-      max: 5
-
-# A theme is a collection of behaviours.
+# A theme is a collection of behaviours, each driven by an input: an
+# abstract 0..1 value. Which data source feeds an input, and how it's
+# scaled, is up to the mapping the theme is played with (see mappings/).
+# This theme uses the conventional inputs:
+#   activity -> birdsong
+#   flow     -> the river, gentle to rushing, plus splashes
+#   quirks   -> a woodpecker
 #
 # type: probabilistic
 #   rate is an expected number of events per second (a Poisson process),
@@ -45,8 +21,8 @@ sources:
 # output: sample | sample_loop
 #   emits an event.Sample for the WAV sample player (internal/sampler).
 #   sample_loop starts a persistent, continuously-playing layer whose gain
-#   is the ramped min_value..max_value; two sample_loop sounds sharing a
-#   metric with opposite ramps crossfade against each other (see
+#   is the ramped min_value..max_value; two sample_loop sounds sharing an
+#   input with opposite ramps crossfade against each other (see
 #   river-gentle/river-rushing below).
 #
 # sample_group paths are relative to this file.
@@ -55,7 +31,7 @@ sounds:
   - name: birds
     type: probabilistic
     output: sample
-    source: requests
+    input: activity
     rate:
       min: 0.03
       max: 2.5
@@ -69,12 +45,12 @@ sounds:
       max: 1.15
 
   # The river is built from two looping layers with opposing gain ramps, so
-  # raising bandwidth crossfades from a gentle trickle to a rushing torrent
+  # rising flow crossfades from a gentle trickle to a rushing torrent
   # instead of just getting louder.
   - name: river-gentle
     type: continuous
     output: sample_loop
-    source: bandwidth
+    input: flow
     sample_group: samples/river-gentle
     min_value: 1
     max_value: 0
@@ -82,7 +58,7 @@ sounds:
   - name: river-rushing
     type: continuous
     output: sample_loop
-    source: bandwidth
+    input: flow
     sample_group: samples/river-rushing
     min_value: 0
     max_value: 1
@@ -91,7 +67,7 @@ sounds:
   - name: splash
     type: probabilistic
     output: sample
-    source: bandwidth
+    input: flow
     rate:
       min: 0.05
       max: 3
@@ -107,7 +83,7 @@ sounds:
   - name: woodpecker
     type: probabilistic
     output: sample
-    source: 4xx
+    input: quirks
     rate:
       min: 0.005
       max: 1.2

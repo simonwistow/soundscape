@@ -18,15 +18,12 @@ func (r *recordingOutput) Send(e event.Event) error {
 func testTheme() Theme {
 	return Theme{
 		Name: "test",
-		Sources: []Source{
-			{Name: "requests", Metric: "requests", Smoothing: 1, Normalise: &Range{Min: 0, Max: 1000}},
-		},
 		Sounds: []Sound{
 			{
 				Name:       "birds",
 				Type:       "probabilistic",
 				Channel:    0,
-				Source:     "requests",
+				Input:      "activity",
 				Rate:       &Rate{Min: 0.5, Max: 6},
 				Velocity:   &Range{Min: 40, Max: 110},
 				DurationMs: 200,
@@ -36,7 +33,7 @@ func testTheme() Theme {
 				Name:       "river",
 				Type:       "continuous",
 				Channel:    1,
-				Source:     "requests",
+				Input:      "activity",
 				Controller: 74,
 				MinValue:   0,
 				MaxValue:   127,
@@ -51,7 +48,7 @@ func TestEngineDeterministicWithSeed(t *testing.T) {
 		engine := NewEngineWithSeed(testTheme(), out, 12345)
 		ts := int64(1000)
 		for i := 0; i < 50; i++ {
-			engine.Process(ts, map[string]float64{"requests": 800})
+			engine.Process(ts, map[string]float64{"activity": 0.97})
 			ts++
 		}
 		return out.events
@@ -83,7 +80,7 @@ func TestEngineProbabilisticProducesVariedCounts(t *testing.T) {
 	ts := int64(2000)
 	for i := 0; i < 200; i++ {
 		before := len(out.events)
-		engine.Process(ts, map[string]float64{"requests": 500})
+		engine.Process(ts, map[string]float64{"activity": 0.9})
 		ts++
 		noteEvents := 0
 		for _, e := range out.events[before:] {
@@ -116,10 +113,10 @@ func TestEngineSkipsLongGapEventFlood(t *testing.T) {
 	out := &recordingOutput{}
 	engine := NewEngineWithSeed(testTheme(), out, 3)
 
-	engine.Process(0, map[string]float64{"requests": 900})
+	engine.Process(0, map[string]float64{"activity": 0.985})
 	// A huge gap (e.g. after a dropped connection) should be clamped rather
 	// than interpreted as a single enormous tick.
-	engine.Process(100000, map[string]float64{"requests": 900})
+	engine.Process(100000, map[string]float64{"activity": 0.985})
 
 	noteEvents := 0
 	for _, e := range out.events {
@@ -136,14 +133,14 @@ func TestEngineSkipsLongGapEventFlood(t *testing.T) {
 func TestEngineReloadAppliesNewTheme(t *testing.T) {
 	out := &recordingOutput{}
 	engine := NewEngineWithSeed(testTheme(), out, 1)
-	engine.Process(0, map[string]float64{"requests": 500})
+	engine.Process(0, map[string]float64{"activity": 0.9})
 
 	reloaded := testTheme()
 	reloaded.Sounds[1].Controller = 99 // change the river's CC controller
 	engine.Reload(reloaded)
 
 	out.events = nil
-	engine.Process(1, map[string]float64{"requests": 500})
+	engine.Process(1, map[string]float64{"activity": 0.9})
 
 	found := false
 	for _, e := range out.events {
@@ -159,41 +156,36 @@ func TestEngineReloadAppliesNewTheme(t *testing.T) {
 	}
 }
 
-func TestEngineReloadPreservesSmootherState(t *testing.T) {
+func TestEngineMissingInputReadsAsZero(t *testing.T) {
 	out := &recordingOutput{}
 	engine := NewEngineWithSeed(testTheme(), out, 1)
+	engine.Process(0, map[string]float64{})
 
-	// Feed enough ticks that the smoothed "requests" value has moved well
-	// away from its initial value.
-	for i := 0; i < 20; i++ {
-		engine.Process(int64(i), map[string]float64{"requests": 900})
+	for _, e := range out.events {
+		if c, ok := e.(event.Control); ok && c.Actor == "river" && c.Value != 0 {
+			t.Fatalf("river CC = %v with no input, want 0 (min_value)", c.Value)
+		}
 	}
-	before := engine.smoothers["requests"].Update(900) // peek without perturbing much
+}
 
-	engine.Reload(testTheme())
-	after := engine.smoothers["requests"]
-
-	if after == nil {
-		t.Fatalf("expected the requests smoother to survive reload")
-	}
-	got := after.Update(900)
-	if diff := got - before; diff < -0.05 || diff > 0.05 {
-		t.Fatalf("smoother state was reset by reload: before=%v after=%v", before, got)
+func TestInputs(t *testing.T) {
+	th := testTheme()
+	th.Sounds = append(th.Sounds, Sound{Name: "alarm", Input: "trouble"})
+	got := Inputs(th)
+	if len(got) != 2 || got[0] != "activity" || got[1] != "trouble" {
+		t.Fatalf("Inputs = %v, want [activity trouble]", got)
 	}
 }
 
 func TestEngineSampleOutputEmitsSampleEvents(t *testing.T) {
 	th := Theme{
 		Name: "test",
-		Sources: []Source{
-			{Name: "requests", Metric: "requests", Smoothing: 1, Normalise: &Range{Min: 0, Max: 1000}},
-		},
 		Sounds: []Sound{
 			{
 				Name:        "birds",
 				Type:        "probabilistic",
 				Output:      "sample",
-				Source:      "requests",
+				Input:       "activity",
 				Rate:        &Rate{Min: 3, Max: 3},
 				Velocity:    &Range{Min: 0.6, Max: 0.9},
 				DurationMs:  150,
@@ -205,8 +197,8 @@ func TestEngineSampleOutputEmitsSampleEvents(t *testing.T) {
 
 	out := &recordingOutput{}
 	engine := NewEngineWithSeed(th, out, 1)
-	engine.Process(0, map[string]float64{"requests": 500})
-	engine.Process(1, map[string]float64{"requests": 500})
+	engine.Process(0, map[string]float64{"activity": 0.9})
+	engine.Process(1, map[string]float64{"activity": 0.9})
 
 	if len(out.events) == 0 {
 		t.Fatalf("expected at least one sample event")
@@ -231,15 +223,12 @@ func TestEngineSampleOutputEmitsSampleEvents(t *testing.T) {
 func TestEngineSampleLoopEmitsLoopEvents(t *testing.T) {
 	th := Theme{
 		Name: "test",
-		Sources: []Source{
-			{Name: "bandwidth", Metric: "bandwidth", Smoothing: 1, Normalise: &Range{Min: 0, Max: 1000}},
-		},
 		Sounds: []Sound{
 			{
 				Name:        "river-gentle",
 				Type:        "continuous",
 				Output:      "sample_loop",
-				Source:      "bandwidth",
+				Input:       "flow",
 				SampleGroup: "samples/river-gentle",
 				MinValue:    1,
 				MaxValue:    0,
@@ -248,7 +237,7 @@ func TestEngineSampleLoopEmitsLoopEvents(t *testing.T) {
 				Name:        "river-rushing",
 				Type:        "continuous",
 				Output:      "sample_loop",
-				Source:      "bandwidth",
+				Input:       "flow",
 				SampleGroup: "samples/river-rushing",
 				MinValue:    0,
 				MaxValue:    1,
@@ -258,7 +247,7 @@ func TestEngineSampleLoopEmitsLoopEvents(t *testing.T) {
 
 	out := &recordingOutput{}
 	engine := NewEngineWithSeed(th, out, 1)
-	engine.Process(0, map[string]float64{"bandwidth": 900}) // value ~= 0.9
+	engine.Process(0, map[string]float64{"flow": 0.9})
 
 	if len(out.events) != 2 {
 		t.Fatalf("expected 2 loop events, got %d", len(out.events))
@@ -271,9 +260,9 @@ func TestEngineSampleLoopEmitsLoopEvents(t *testing.T) {
 		t.Fatalf("expected both sample_loop sounds to set Loop=true")
 	}
 	if gentle.Velocity > 0.2 {
-		t.Fatalf("gentle layer gain should fall as bandwidth rises, got %v", gentle.Velocity)
+		t.Fatalf("gentle layer gain should fall as flow rises, got %v", gentle.Velocity)
 	}
 	if rushing.Velocity < 0.8 {
-		t.Fatalf("rushing layer gain should rise with bandwidth, got %v", rushing.Velocity)
+		t.Fatalf("rushing layer gain should rise with flow, got %v", rushing.Velocity)
 	}
 }

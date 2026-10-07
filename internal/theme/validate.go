@@ -8,7 +8,7 @@ import (
 )
 
 // ValidationError is one problem found by Validate. Sound names the
-// sound/source it belongs to, or is empty for theme-level problems.
+// sound it belongs to, or is empty for theme-level problems.
 type ValidationError struct {
 	Sound string
 	Msg   string
@@ -23,9 +23,12 @@ func (e ValidationError) Error() string {
 
 // Validate checks a loaded Theme for the kinds of mistakes that would
 // otherwise only surface as a silent no-op or a confusing runtime error:
-// missing/duplicate names, sounds referencing unknown sources, inverted
+// missing/duplicate names, sounds with no input, inverted
 // ranges, out-of-range MIDI values, unknown behaviour/output kinds, and
 // sample_group directories that don't exist or have no .wav files.
+//
+// Whether a theme's inputs are actually provided depends on the mapping
+// it's played with; see mapping.Unbound.
 //
 // It intentionally does not flag an inverted min_value/max_value on a
 // continuous sound: that's how two sample_loop sounds are set up to
@@ -36,31 +39,8 @@ func Validate(t Theme) []error {
 	if strings.TrimSpace(t.Name) == "" {
 		errs = append(errs, ValidationError{Msg: "theme name is required"})
 	}
-	if len(t.Sources) == 0 {
-		errs = append(errs, ValidationError{Msg: "theme defines no sources"})
-	}
 	if len(t.Sounds) == 0 {
 		errs = append(errs, ValidationError{Msg: "theme defines no sounds"})
-	}
-
-	sourceNames := make(map[string]bool)
-	for _, s := range t.Sources {
-		if s.Name == "" {
-			errs = append(errs, ValidationError{Msg: "a source has no name"})
-			continue
-		}
-		if sourceNames[s.Name] {
-			errs = append(errs, ValidationError{Sound: s.Name, Msg: "duplicate source name"})
-		}
-		sourceNames[s.Name] = true
-
-		if s.Metric == "" {
-			errs = append(errs, ValidationError{Sound: s.Name, Msg: "source has no metric"})
-		}
-		if s.Normalise != nil && s.Normalise.Min >= s.Normalise.Max {
-			errs = append(errs, ValidationError{Sound: s.Name, Msg: fmt.Sprintf(
-				"invalid normalise range: min (%v) >= max (%v)", s.Normalise.Min, s.Normalise.Max)})
-		}
 	}
 
 	soundNames := make(map[string]bool)
@@ -74,11 +54,8 @@ func Validate(t Theme) []error {
 		}
 		soundNames[snd.Name] = true
 
-		if snd.Source == "" {
-			errs = append(errs, ValidationError{Sound: label, Msg: "sound has no source"})
-		} else if !sourceNames[snd.Source] {
-			errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
-				"references unknown source %q", snd.Source)})
+		if snd.Input == "" {
+			errs = append(errs, ValidationError{Sound: label, Msg: "sound has no input"})
 		}
 
 		switch snd.Type {

@@ -1,0 +1,28 @@
+# Fastly real-time analytics -> theme inputs.
+#
+# Needs FASTLY_API_TOKEN and --service-id (or FASTLY_SERVICE_ID). Metric names
+# are fields of the real-time API's `aggregated` record; the ranges suit a
+# busy service, so tune normalise to your own traffic.
+
+source: fastly
+
+inputs:
+  activity:
+    metric: requests
+    smoothing: 8
+    normalise: { min: 1, max: 5000 }
+
+  flow:
+    metric: resp_body_bytes
+    smoothing: 20
+    normalise: { min: 1000, max: 50000000 }
+
+  trouble:
+    metric: errors
+    smoothing: 5
+    normalise: { min: 0, max: 50 }
+
+  quirks:
+    metric: all_status_4xx
+    smoothing: 1
+    normalise: { min: 0, max: 5 }

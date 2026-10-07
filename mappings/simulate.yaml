@@ -1,0 +1,28 @@
+# The built-in simulation -> theme inputs.
+#
+# The simulation cycles slowly between quiet and busy, so every input sweeps
+# its whole range; useful for developing a theme with no data source at all.
+# Its metrics are named and scaled like Fastly's.
+
+source: simulate
+
+inputs:
+  activity:
+    metric: requests
+    smoothing: 8
+    normalise: { min: 1, max: 5000 }
+
+  flow:
+    metric: resp_body_bytes
+    smoothing: 20
+    normalise: { min: 1000, max: 50000000 }
+
+  trouble:
+    metric: errors
+    smoothing: 5
+    normalise: { min: 0, max: 50 }
+
+  quirks:
+    metric: all_status_4xx
+    smoothing: 1
+    normalise: { min: 0, max: 5 }

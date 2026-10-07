@@ -34,26 +34,24 @@ func containsMsg(errs []error, substr string) bool {
 	return false
 }
 
-func TestValidateCatchesUnknownSource(t *testing.T) {
+func TestValidateCatchesMissingInput(t *testing.T) {
 	th := Theme{
-		Name:    "test",
-		Sources: []Source{{Name: "requests", Metric: "requests"}},
+		Name: "test",
 		Sounds: []Sound{
-			{Name: "birds", Type: "probabilistic", Source: "nonexistent", Rate: &Rate{Min: 0.1, Max: 1}, Notes: []int{60}},
+			{Name: "birds", Type: "probabilistic", Rate: &Rate{Min: 0.1, Max: 1}, Notes: []int{60}},
 		},
 	}
 	errs := Validate(th)
-	if !containsMsg(errs, "unknown source") {
-		t.Fatalf("expected unknown-source error, got: %v", errs)
+	if !containsMsg(errs, "sound has no input") {
+		t.Fatalf("expected missing-input error, got: %v", errs)
 	}
 }
 
 func TestValidateCatchesUnknownBehaviourType(t *testing.T) {
 	th := Theme{
-		Name:    "test",
-		Sources: []Source{{Name: "requests", Metric: "requests"}},
+		Name: "test",
 		Sounds: []Sound{
-			{Name: "birds", Type: "spooky", Source: "requests"},
+			{Name: "birds", Type: "spooky", Input: "activity"},
 		},
 	}
 	errs := Validate(th)
@@ -64,16 +62,12 @@ func TestValidateCatchesUnknownBehaviourType(t *testing.T) {
 
 func TestValidateCatchesInvertedRanges(t *testing.T) {
 	th := Theme{
-		Name:    "test",
-		Sources: []Source{{Name: "requests", Metric: "requests", Normalise: &Range{Min: 100, Max: 1}}},
+		Name: "test",
 		Sounds: []Sound{
-			{Name: "birds", Type: "probabilistic", Source: "requests", Rate: &Rate{Min: 5, Max: 1}, Notes: []int{60}},
+			{Name: "birds", Type: "probabilistic", Input: "activity", Rate: &Rate{Min: 5, Max: 1}, Notes: []int{60}},
 		},
 	}
 	errs := Validate(th)
-	if !containsMsg(errs, "invalid normalise range") {
-		t.Fatalf("expected invalid normalise range error, got: %v", errs)
-	}
 	if !containsMsg(errs, "invalid rate range") {
 		t.Fatalf("expected invalid rate range error, got: %v", errs)
 	}
@@ -81,12 +75,11 @@ func TestValidateCatchesInvertedRanges(t *testing.T) {
 
 func TestValidateCatchesInvalidMIDIValues(t *testing.T) {
 	th := Theme{
-		Name:    "test",
-		Sources: []Source{{Name: "requests", Metric: "requests"}},
+		Name: "test",
 		Sounds: []Sound{
-			{Name: "birds", Type: "probabilistic", Source: "requests", Rate: &Rate{Min: 0.1, Max: 1},
+			{Name: "birds", Type: "probabilistic", Input: "activity", Rate: &Rate{Min: 0.1, Max: 1},
 				Notes: []int{200}, Channel: 99},
-			{Name: "river", Type: "continuous", Source: "requests", Controller: 500, Channel: -1},
+			{Name: "river", Type: "continuous", Input: "activity", Controller: 500, Channel: -1},
 		},
 	}
 	errs := Validate(th)
@@ -103,10 +96,9 @@ func TestValidateCatchesInvalidMIDIValues(t *testing.T) {
 
 func TestValidateCatchesMissingSampleGroup(t *testing.T) {
 	th := Theme{
-		Name:    "test",
-		Sources: []Source{{Name: "requests", Metric: "requests"}},
+		Name: "test",
 		Sounds: []Sound{
-			{Name: "birds", Type: "probabilistic", Output: "sample", Source: "requests",
+			{Name: "birds", Type: "probabilistic", Output: "sample", Input: "activity",
 				Rate: &Rate{Min: 0.1, Max: 1}, SampleGroup: "/no/such/directory"},
 		},
 	}
@@ -118,11 +110,10 @@ func TestValidateCatchesMissingSampleGroup(t *testing.T) {
 
 func TestValidateCatchesDuplicateSoundNames(t *testing.T) {
 	th := Theme{
-		Name:    "test",
-		Sources: []Source{{Name: "requests", Metric: "requests"}},
+		Name: "test",
 		Sounds: []Sound{
-			{Name: "birds", Type: "probabilistic", Source: "requests", Rate: &Rate{Min: 0.1, Max: 1}, Notes: []int{60}},
-			{Name: "birds", Type: "probabilistic", Source: "requests", Rate: &Rate{Min: 0.1, Max: 1}, Notes: []int{62}},
+			{Name: "birds", Type: "probabilistic", Input: "activity", Rate: &Rate{Min: 0.1, Max: 1}, Notes: []int{60}},
+			{Name: "birds", Type: "probabilistic", Input: "activity", Rate: &Rate{Min: 0.1, Max: 1}, Notes: []int{62}},
 		},
 	}
 	errs := Validate(th)
@@ -133,10 +124,9 @@ func TestValidateCatchesDuplicateSoundNames(t *testing.T) {
 
 func TestValidateAllowsInvertedContinuousRampForCrossfade(t *testing.T) {
 	th := Theme{
-		Name:    "test",
-		Sources: []Source{{Name: "bandwidth", Metric: "resp_body_bytes"}},
+		Name: "test",
 		Sounds: []Sound{
-			{Name: "river-gentle", Type: "continuous", Source: "bandwidth",
+			{Name: "river-gentle", Type: "continuous", Input: "flow",
 				Controller: 74, MinValue: 1, MaxValue: 0},
 		},
 	}

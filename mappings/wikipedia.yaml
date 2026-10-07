@@ -1,0 +1,33 @@
+# Wikipedia (and sister projects) live edits -> theme inputs.
+#
+# Wikimedia's public recent-changes stream: every edit, new page and log
+# action across all wikis, about 30 events a second, no account needed.
+# Restrict it with e.g. --wikipedia-wikis enwiki. Metrics are per-second
+# rates; see internal/wikipedia for the full list (edits, new_pages,
+# human_edits, bot_edits, bytes_changed, log_delete, log_upload, ...).
+#
+# The ranges suit the all-wikis firehose (~13 edits/s, ~12 KB/s changed,
+# ~2 deletions/s, ~1.5 new pages/s); a single wiki is much quieter.
+
+source: wikipedia
+
+inputs:
+  activity:
+    metric: edits
+    smoothing: 8
+    normalise: { min: 1, max: 40 }
+
+  flow:
+    metric: bytes_changed
+    smoothing: 15
+    normalise: { min: 500, max: 100000 }
+
+  trouble:
+    metric: log_delete
+    smoothing: 5
+    normalise: { min: 0, max: 10 }
+
+  quirks:
+    metric: new_pages
+    smoothing: 3
+    normalise: { min: 0, max: 8 }

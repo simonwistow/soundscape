@@ -2,6 +2,26 @@
 
 The current prototype intentionally has a small theme vocabulary.
 
+## Sources, mappings and inputs
+
+Data flows source -> mapping -> theme:
+
+* A `source.Source` (`internal/source`, `internal/wikipedia`, `internal/prometheus`,
+  `internal/fastly`) emits a timestamped `map[string]float64` of raw metrics per tick. Sources
+  log and retry transient failures themselves rather than returning them.
+* A mapping (`mappings/*.yaml`, `internal/mapping`) names the source and binds each theme input
+  to one of its metrics (or, for Prometheus, a PromQL query), with `smoothing` and `normalise`.
+  `mapping.Conditioner` applies that, producing 0..1 inputs.
+* The theme engine (`theme.Engine.Process`) only ever sees those inputs; sounds pick one with
+  `input:`.
+
+Conditioning lives in the mapping rather than the theme because the right scale is a property of
+the data: Wikipedia's ~20 edits/s and a CDN's 5000 req/s can't share a `normalise` range, but the
+same forest should work for both. Input names are free-form; the conventional set (`activity`,
+`flow`, `trouble`, `quirks`) is documented in the README so bundled themes and mappings mix and
+match. `theme.Load` decodes strictly, so a misspelt key (or an old-format theme with
+`sources:`/`metric:`) is an error rather than silently ignored.
+
 ## Event semantics
 
 `probabilistic` sounds treat `rate` as an expected number of events per second, not a per-tick
@@ -27,7 +47,7 @@ Each `Sound` has a `type` (the scheduling primitive: `probabilistic` or `continu
 * `output: sample_loop` emits a persistent `event.Sample{Loop: true}`: the sample player starts it
   once and thereafter just glides its gain/pitch towards whatever a later event for the same actor
   (`Sound.Name`) requests, rather than retriggering. Its ramped `min_value..max_value` becomes the
-  loop's gain, so two `sample_loop` sounds sharing a metric with opposite ramps (see
+  loop's gain, so two `sample_loop` sounds sharing an input with opposite ramps (see
   `themes/forest/theme.yaml`'s `river-gentle`/`river-rushing`) crossfade against each other.
 
 `sample_group` paths are relative to the theme file (resolved in `theme.Load`), so a theme

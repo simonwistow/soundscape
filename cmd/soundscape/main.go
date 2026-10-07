@@ -1,21 +1,27 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/simonwistow/soundscape/internal/fastly"
+	"github.com/simonwistow/soundscape/internal/mapping"
 	"github.com/simonwistow/soundscape/internal/midi"
 	"github.com/simonwistow/soundscape/internal/output"
+	"github.com/simonwistow/soundscape/internal/prometheus"
 	"github.com/simonwistow/soundscape/internal/sampler"
+	"github.com/simonwistow/soundscape/internal/source"
 	"github.com/simonwistow/soundscape/internal/synth"
 	"github.com/simonwistow/soundscape/internal/theme"
+	"github.com/simonwistow/soundscape/internal/wikipedia"
 )
 
 const sampleRate = 44100
@@ -27,22 +33,65 @@ func main() {
 	}
 
 	var (
+		aliases    = flag.String("aliases", "", "mapping from source metrics to theme inputs: a name in mappings/ or a path (default: the one named after --source if given, else fastly if a service ID is set, else simulate)")
+		sourceName = flag.String("source", "", "override the mapping's source: "+strings.Join(mapping.Sources, ", "))
+		simulate   = flag.Bool("simulate", false, "shorthand for --source simulate")
+
 		serviceID = flag.String("service-id", os.Getenv("FASTLY_SERVICE_ID"), "Fastly service ID")
 		token     = flag.String("token", os.Getenv("FASTLY_API_TOKEN"), "Fastly API token")
+
+		promURL      = flag.String("prometheus-url", envOr("PROMETHEUS_URL", "http://localhost:9090"), "Prometheus server URL")
+		promInterval = flag.Duration("prometheus-interval", time.Second, "how often to evaluate the Prometheus queries")
+
+		wikis = flag.String("wikipedia-wikis", "", "comma-separated wiki IDs to count (e.g. enwiki,dewiki); default all Wikimedia wikis")
+
 		themePath = flag.String("theme", "themes/forest/theme.yaml", "theme YAML file")
 		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, for note/cc-output sounds")
 		midiOut   = flag.String("midi-out", "", "optional path to write a Standard MIDI File (.mid) of note/cc-output sounds; no live device support yet, see internal/midi")
-		simulate  = flag.Bool("simulate", false, "use generated telemetry instead of Fastly")
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
-		watch     = flag.Bool("watch", true, "reload the theme file automatically when it changes")
+		watch     = flag.Bool("watch", true, "reload the theme and mapping files automatically when they change")
 	)
 	flag.Parse()
+
+	if *simulate {
+		*sourceName = "simulate"
+	}
+	if *aliases == "" {
+		switch {
+		case *sourceName != "":
+			*aliases = *sourceName
+		case *serviceID != "":
+			*aliases = "fastly"
+		default:
+			*aliases = "simulate"
+		}
+	}
+	mappingPath := mapping.Resolve(*aliases)
+
+	m, err := loadMapping(mappingPath, *sourceName)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("source: %s, mapping: %s", m.Source, mappingPath)
+
+	src, err := buildSource(m, sourceConfig{
+		serviceID:    *serviceID,
+		token:        *token,
+		promURL:      *promURL,
+		promInterval: *promInterval,
+		wikis:        *wikis,
+		verbose:      *verbose,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	th, err := theme.Load(*themePath)
 	if err != nil {
 		log.Fatal(err)
 	}
+	warnUnbound(m, th)
 
 	out, player, closeOutput, err := buildOutput(th, *soundFont, *midiOut)
 	if err != nil {
@@ -68,53 +117,115 @@ func main() {
 	} else {
 		engine = theme.NewEngine(th, out)
 	}
+	conditioner := mapping.NewConditioner(m)
 
 	if *watch {
-		go watchTheme(*themePath, engine, player)
+		r := &reloader{
+			themePath: *themePath, mappingPath: mappingPath, sourceOverride: *sourceName,
+			engine: engine, conditioner: conditioner, player: player,
+			theme: th, mapping: m,
+		}
+		go watchFile(*themePath, r.reloadTheme)
+		go watchFile(mappingPath, r.reloadMapping)
 	}
 
-	if *simulate {
-		runSimulation(engine)
-		return
-	}
-
-	if *serviceID == "" || *token == "" {
-		log.Fatal("FASTLY_API_TOKEN and --service-id are required unless --simulate is used")
-	}
-
-	client := fastly.NewClient(*token, *serviceID)
-
-	var timestamp int64
-	for {
-		resp, err := client.Fetch(timestamp)
-		if err != nil {
-			log.Printf("Fastly: %v", err)
-			time.Sleep(time.Second)
-			continue
-		}
-
-		if *verbose {
-			fmt.Printf("timestamp=%d records=%d delay=%ds\n",
-				resp.Timestamp, len(resp.Data), resp.AggregateDelay)
-		}
-
-		for _, record := range resp.Data {
-			engine.Process(record.Recorded, record.Metrics())
-		}
-
-		timestamp = resp.Timestamp
-		time.Sleep(200 * time.Millisecond)
+	err = src.Run(context.Background(), func(ts int64, raw map[string]float64) {
+		engine.Process(ts, conditioner.Apply(raw))
+	})
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
-// runValidate implements `soundscape validate <theme.yaml>`: load the theme
-// and report every problem theme.Validate finds, exiting non-zero if any.
+// loadMapping loads and validates a mapping file, applying a --source
+// override first so the override is what gets validated.
+func loadMapping(path, sourceOverride string) (mapping.Mapping, error) {
+	m, err := mapping.Load(path)
+	if err != nil {
+		return mapping.Mapping{}, fmt.Errorf("mapping: %w", err)
+	}
+	if sourceOverride != "" {
+		m.Source = sourceOverride
+	}
+	if issues := mapping.Validate(m); len(issues) > 0 {
+		msgs := make([]string, len(issues))
+		for i, issue := range issues {
+			msgs[i] = issue.Error()
+		}
+		return mapping.Mapping{}, fmt.Errorf("mapping %s:\n  - %s", path, strings.Join(msgs, "\n  - "))
+	}
+	return m, nil
+}
+
+// warnUnbound logs theme inputs the mapping doesn't provide. They aren't
+// fatal - a mapping may reasonably have nothing for, say, "quirks" - but
+// those sounds will sit at their minimum.
+func warnUnbound(m mapping.Mapping, th theme.Theme) {
+	if missing := mapping.Unbound(m, theme.Inputs(th)); len(missing) > 0 {
+		log.Printf("warning: theme %q uses inputs the mapping doesn't provide (they'll read as 0): %s",
+			th.Name, strings.Join(missing, ", "))
+	}
+}
+
+type sourceConfig struct {
+	serviceID, token string
+	promURL          string
+	promInterval     time.Duration
+	wikis            string
+	verbose          bool
+}
+
+func buildSource(m mapping.Mapping, cfg sourceConfig) (source.Source, error) {
+	switch m.Source {
+	case "simulate":
+		return source.Simulation{}, nil
+
+	case "fastly":
+		if cfg.serviceID == "" || cfg.token == "" {
+			return nil, fmt.Errorf("the fastly source needs FASTLY_API_TOKEN and --service-id")
+		}
+		return fastly.Source{Client: fastly.NewClient(cfg.token, cfg.serviceID), Verbose: cfg.verbose}, nil
+
+	case "prometheus":
+		return prometheus.Source{
+			Client:   prometheus.NewClient(cfg.promURL),
+			Queries:  m.Queries(),
+			Interval: cfg.promInterval,
+			Verbose:  cfg.verbose,
+		}, nil
+
+	case "wikipedia":
+		var wikis []string
+		for _, w := range strings.Split(cfg.wikis, ",") {
+			if w = strings.TrimSpace(w); w != "" {
+				wikis = append(wikis, w)
+			}
+		}
+		return wikipedia.Source{Wikis: wikis, Verbose: cfg.verbose}, nil
+
+	default:
+		return nil, fmt.Errorf("source %q is not implemented yet", m.Source)
+	}
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// runValidate implements `soundscape validate [--aliases X] <theme.yaml>`:
+// load the theme and report every problem theme.Validate finds, plus, with
+// --aliases, the mapping's own problems and any theme inputs it leaves
+// unbound. Exits non-zero if anything is found.
 func runValidate(args []string) {
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
+	aliases := fs.String("aliases", "", "also check a mapping (name in mappings/ or path) against the theme")
 	fs.Parse(args)
 
 	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: soundscape validate <theme.yaml>")
+		fmt.Fprintln(os.Stderr, "usage: soundscape validate [--aliases mapping] <theme.yaml>")
 		os.Exit(2)
 	}
 	path := fs.Arg(0)
@@ -124,10 +235,25 @@ func runValidate(args []string) {
 		fmt.Printf("%s: failed to load: %v\n", path, err)
 		os.Exit(1)
 	}
-
 	issues := theme.Validate(th)
+
+	if *aliases != "" {
+		mappingPath := mapping.Resolve(*aliases)
+		m, err := mapping.Load(mappingPath)
+		if err != nil {
+			fmt.Printf("%s: failed to load: %v\n", mappingPath, err)
+			os.Exit(1)
+		}
+		for _, issue := range mapping.Validate(m) {
+			issues = append(issues, fmt.Errorf("%s: %w", mappingPath, issue))
+		}
+		for _, name := range mapping.Unbound(m, theme.Inputs(th)) {
+			issues = append(issues, fmt.Errorf("input %q is used by the theme but not provided by %s", name, mappingPath))
+		}
+	}
+
 	if len(issues) == 0 {
-		fmt.Printf("%s: OK (%d sources, %d sounds)\n", path, len(th.Sources), len(th.Sounds))
+		fmt.Printf("%s: OK (%d sounds, inputs: %s)\n", path, len(th.Sounds), strings.Join(theme.Inputs(th), ", "))
 		return
 	}
 
@@ -204,13 +330,11 @@ func buildOutput(th theme.Theme, soundFontPath, midiOutPath string) (output.Outp
 	return output.NewMulti(outs...), player, closeAll, nil
 }
 
-// watchTheme polls path for modifications and hot-reloads it into engine
-// when it changes: the theme is re-loaded and validated, any sample groups
-// it references are (re)loaded into player (if the theme uses one), and
-// only if all of that succeeds is it applied. An invalid or broken edit is
-// logged and ignored, leaving the previous theme running rather than
-// crashing or going silent mid-installation.
-func watchTheme(path string, engine *theme.Engine, player *sampler.Player) {
+// watchFile polls path once a second and calls apply when it changes.
+// apply is expected to leave the running state untouched on error, so an
+// invalid or broken edit is logged and ignored rather than crashing or
+// going silent mid-installation.
+func watchFile(path string, apply func() error) {
 	var lastMod time.Time
 	if info, err := os.Stat(path); err == nil {
 		lastMod = info.ModTime()
@@ -223,30 +347,87 @@ func watchTheme(path string, engine *theme.Engine, player *sampler.Player) {
 		}
 		lastMod = info.ModTime()
 
-		newTheme, err := theme.Load(path)
-		if err != nil {
-			log.Printf("hot reload: %s: %v (keeping previous theme)", path, err)
-			continue
+		if err := apply(); err != nil {
+			log.Printf("hot reload: %s: %v", path, err)
 		}
-
-		if issues := theme.Validate(newTheme); len(issues) > 0 {
-			log.Printf("hot reload: %s: %d problem(s) found, keeping previous theme:", path, len(issues))
-			for _, issue := range issues {
-				log.Printf("  - %v", issue)
-			}
-			continue
-		}
-
-		if player != nil {
-			if err := reloadSampleGroups(player, newTheme); err != nil {
-				log.Printf("hot reload: %s: %v (keeping previous theme)", path, err)
-				continue
-			}
-		}
-
-		engine.Reload(newTheme)
-		log.Printf("hot reload: %s: reloaded (%d sources, %d sounds)", path, len(newTheme.Sources), len(newTheme.Sounds))
 	}
+}
+
+// reloader applies hot-reloaded theme and mapping files. It remembers the
+// current pair so each side can be checked against the other.
+type reloader struct {
+	themePath, mappingPath, sourceOverride string
+
+	engine      *theme.Engine
+	conditioner *mapping.Conditioner
+	player      *sampler.Player
+
+	mu      sync.Mutex
+	theme   theme.Theme
+	mapping mapping.Mapping
+}
+
+func (r *reloader) reloadTheme() error {
+	newTheme, err := theme.Load(r.themePath)
+	if err != nil {
+		return fmt.Errorf("%v (keeping previous theme)", err)
+	}
+	if issues := theme.Validate(newTheme); len(issues) > 0 {
+		msgs := make([]string, len(issues))
+		for i, issue := range issues {
+			msgs[i] = issue.Error()
+		}
+		return fmt.Errorf("%d problem(s) found, keeping previous theme:\n  - %s", len(issues), strings.Join(msgs, "\n  - "))
+	}
+	if r.player != nil {
+		if err := reloadSampleGroups(r.player, newTheme); err != nil {
+			return fmt.Errorf("%v (keeping previous theme)", err)
+		}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	warnUnbound(r.mapping, newTheme)
+	r.engine.Reload(newTheme)
+	r.theme = newTheme
+	log.Printf("hot reload: %s: reloaded (%d sounds)", r.themePath, len(newTheme.Sounds))
+	return nil
+}
+
+func (r *reloader) reloadMapping() error {
+	m, err := loadMapping(r.mappingPath, r.sourceOverride)
+	if err != nil {
+		return fmt.Errorf("%v\n(keeping previous mapping)", err)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// The running source was built from the old mapping (including the
+	// Prometheus queries), so only conditioning can change live.
+	if m.Source != r.mapping.Source {
+		return fmt.Errorf("source changed from %s to %s; restart to switch sources (keeping previous mapping)", r.mapping.Source, m.Source)
+	}
+	if m.Source == "prometheus" && !sameQueries(m, r.mapping) {
+		return fmt.Errorf("Prometheus queries changed; restart to apply them (keeping previous mapping)")
+	}
+	warnUnbound(m, r.theme)
+	r.conditioner.Reload(m)
+	r.mapping = m
+	log.Printf("hot reload: %s: reloaded (%d inputs)", r.mappingPath, len(m.Inputs))
+	return nil
+}
+
+func sameQueries(a, b mapping.Mapping) bool {
+	qa, qb := a.Queries(), b.Queries()
+	if len(qa) != len(qb) {
+		return false
+	}
+	for k, v := range qa {
+		if qb[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func reloadSampleGroups(player *sampler.Player, th theme.Theme) error {
@@ -271,26 +452,4 @@ func sampleGroups(th theme.Theme) []string {
 		groups = append(groups, sound.SampleGroup)
 	}
 	return groups
-}
-
-func runSimulation(engine *theme.Engine) {
-	// A deliberately slow cycle: quiet -> busy -> quiet.
-	var t float64
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		requests := 50.0 + (1+math.Sin(t))*4500.0
-		bandwidth := requests * (1000 + 8000*(1+math.Sin(t*0.7))/2)
-		errors := 1.0 + 10.0*(1+math.Sin(t*1.7))/2
-
-		engine.Process(int64(time.Now().Unix()), map[string]float64{
-			"requests":        requests,
-			"resp_body_bytes": bandwidth,
-			"errors":          errors,
-			"hits":            requests * 0.85,
-		})
-
-		t += 0.12
-	}
 }

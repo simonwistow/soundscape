@@ -1,0 +1,37 @@
+# Prometheus -> theme inputs.
+#
+# Each input is a PromQL `query` that should reduce to one number (a vector
+# result is summed). The server is --prometheus-url / PROMETHEUS_URL
+# (default http://localhost:9090).
+#
+# This example queries Prometheus's own HTTP metrics, so it works against a
+# bare Prometheus with no other exporters: the soundscape's polling is
+# itself traffic, and you can add more with e.g.
+#
+#   while true; do curl -s 'localhost:9090/api/v1/query?query=up' >/dev/null; done
+#   curl -s 'localhost:9090/api/v1/query?query=sum('   # a malformed query: a 400, i.e. quirks
+#
+# Copy this file and point the queries at your own metrics.
+
+source: prometheus
+
+inputs:
+  activity:
+    query: sum(rate(prometheus_http_requests_total[1m]))
+    smoothing: 4
+    normalise: { min: 0.1, max: 50 }
+
+  flow:
+    query: sum(rate(prometheus_http_response_size_bytes_sum[1m]))
+    smoothing: 10
+    normalise: { min: 100, max: 500000 }
+
+  trouble:
+    query: sum(rate(prometheus_http_requests_total{code=~"5.."}[1m]))
+    smoothing: 5
+    normalise: { min: 0, max: 5 }
+
+  quirks:
+    query: sum(rate(prometheus_http_requests_total{code=~"4.."}[1m]))
+    smoothing: 1
+    normalise: { min: 0, max: 5 }

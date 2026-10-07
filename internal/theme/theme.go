@@ -1,6 +1,7 @@
 package theme
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand"
 	"os"
@@ -21,17 +22,13 @@ import (
 // flood of catch-up events instead of naturally resuming.
 const maxTickSeconds = 10.0
 
+// Theme is a set of sounds driven by abstract, source-independent inputs
+// (named 0..1 values such as "activity" or "trouble"). Which data source
+// feeds each input, and how it's scaled into 0..1, is a mapping's job (see
+// internal/mapping), so one theme can be played from any source.
 type Theme struct {
-	Name    string   `yaml:"name"`
-	Sources []Source `yaml:"sources"`
-	Sounds  []Sound  `yaml:"sounds"`
-}
-
-type Source struct {
-	Name      string  `yaml:"name"`
-	Metric    string  `yaml:"metric"`
-	Smoothing float64 `yaml:"smoothing"`
-	Normalise *Range  `yaml:"normalise"`
+	Name   string  `yaml:"name"`
+	Sounds []Sound `yaml:"sounds"`
 }
 
 type Range struct {
@@ -45,14 +42,14 @@ type Range struct {
 // continuous) emit MIDI-style events for the SoundFont backend, while
 // "sample" and "sample_loop" emit event.Sample values for the WAV sample
 // player. A "sample_loop" sound's ramped value (min_value..max_value) is
-// used directly as loop gain, so two sample_loop sounds sharing a metric
+// used directly as loop gain, so two sample_loop sounds sharing an input
 // with opposite min/max ramps crossfade against each other.
 type Sound struct {
 	Name        string  `yaml:"name"`
 	Type        string  `yaml:"type"`
 	Output      string  `yaml:"output"`
 	Channel     int     `yaml:"channel"`
-	Source      string  `yaml:"source"`
+	Input       string  `yaml:"input"`
 	Rate        *Rate   `yaml:"rate"`
 	Velocity    *Range  `yaml:"velocity"`
 	Notes       []int   `yaml:"notes"`
@@ -71,13 +68,11 @@ type Rate struct {
 }
 
 type Engine struct {
-	mu        sync.Mutex
-	theme     Theme
-	output    output.Output
-	smoothers map[string]*metrics.Smoother
-	last      map[string]float64
-	rng       *rand.Rand
-	lastTick  int64
+	mu       sync.Mutex
+	theme    Theme
+	output   output.Output
+	rng      *rand.Rand
+	lastTick int64
 }
 
 func Load(path string) (Theme, error) {
@@ -85,9 +80,14 @@ func Load(path string) (Theme, error) {
 	if err != nil {
 		return Theme{}, err
 	}
+	// Strict decoding, so a misspelt key - or a theme still in the old
+	// format with sources/metric, which now belong in a mapping - is an
+	// error instead of a silently ignored field.
 	var t Theme
-	if err := yaml.Unmarshal(b, &t); err != nil {
-		return Theme{}, err
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(&t); err != nil {
+		return Theme{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if t.Name == "" {
 		return Theme{}, fmt.Errorf("theme name is required")
@@ -116,46 +116,40 @@ func NewEngine(t Theme, out output.Output) *Engine {
 // probabilistic behaviours (and tests that depend on them) are reproducible.
 func NewEngineWithSeed(t Theme, out output.Output, seed int64) *Engine {
 	return &Engine{
-		theme:     t,
-		output:    out,
-		smoothers: buildSmoothers(t, nil),
-		last:      make(map[string]float64),
-		rng:       rand.New(rand.NewSource(seed)),
+		theme:  t,
+		output: out,
+		rng:    rand.New(rand.NewSource(seed)),
 	}
-}
-
-// buildSmoothers creates a Smoother per source, reusing an existing one (and
-// so its running average) for any source whose name is unchanged, and
-// creating a fresh one otherwise. previous may be nil.
-func buildSmoothers(t Theme, previous map[string]*metrics.Smoother) map[string]*metrics.Smoother {
-	s := make(map[string]*metrics.Smoother, len(t.Sources))
-	for _, source := range t.Sources {
-		if existing, ok := previous[source.Name]; ok {
-			s[source.Name] = existing
-			continue
-		}
-		seconds := source.Smoothing
-		if seconds <= 0 {
-			seconds = 1
-		}
-		s[source.Name] = metrics.NewSmoother(seconds)
-	}
-	return s
 }
 
 // Reload swaps in a new theme definition (e.g. for hot-reloading an edited
-// theme file) without losing in-flight smoothing state for sources that are
-// still present under the same name. It's the caller's responsibility to
+// theme file). It's the caller's responsibility to
 // validate the new theme first (see Validate) — Reload doesn't check.
 func (e *Engine) Reload(t Theme) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.smoothers = buildSmoothers(t, e.smoothers)
 	e.theme = t
-	e.last = make(map[string]float64)
 }
 
-func (e *Engine) Process(timestamp int64, raw map[string]float64) {
+// Inputs returns the distinct input names a theme's sounds use, in order of
+// first use.
+func Inputs(t Theme) []string {
+	seen := make(map[string]bool)
+	var names []string
+	for _, sound := range t.Sounds {
+		if sound.Input == "" || seen[sound.Input] {
+			continue
+		}
+		seen[sound.Input] = true
+		names = append(names, sound.Input)
+	}
+	return names
+}
+
+// Process advances the theme by one tick. inputs holds the theme's input
+// values, each already conditioned into 0..1 (see mapping.Conditioner); a
+// missing input reads as 0.
+func (e *Engine) Process(timestamp int64, inputs map[string]float64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -170,24 +164,8 @@ func (e *Engine) Process(timestamp int64, raw map[string]float64) {
 	}
 	e.lastTick = timestamp
 
-	values := make(map[string]float64)
-
-	for _, source := range e.theme.Sources {
-		v := raw[source.Metric]
-		if s := e.smoothers[source.Name]; s != nil {
-			v = s.Update(v)
-		}
-
-		if source.Normalise != nil {
-			v = metrics.LogNormalise(v, source.Normalise.Min, source.Normalise.Max)
-		}
-
-		values[source.Name] = v
-		e.last[source.Name] = v
-	}
-
 	for _, sound := range e.theme.Sounds {
-		value := values[sound.Source]
+		value := metrics.Clamp(inputs[sound.Input], 0, 1)
 
 		switch sound.Type {
 		case "probabilistic":

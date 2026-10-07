@@ -3,17 +3,21 @@ package metrics
 import "math"
 
 type Smoother struct {
-	alpha float64
-	value float64
-	set   bool
+	seconds float64
+	alpha   float64
+	value   float64
+	set     bool
 }
 
 func NewSmoother(seconds float64) *Smoother {
 	if seconds <= 1 {
 		seconds = 1
 	}
-	return &Smoother{alpha: 1 / seconds}
+	return &Smoother{seconds: seconds, alpha: 1 / seconds}
 }
+
+// Seconds is the smoothing time constant the Smoother was built with.
+func (s *Smoother) Seconds() float64 { return s.seconds }
 
 func (s *Smoother) Update(v float64) float64 {
 	if !s.set {

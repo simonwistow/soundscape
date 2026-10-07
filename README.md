@@ -1,14 +1,15 @@
-# Fastly Soundscape
+# Soundscape
 
-A Go-based generative soundscape driven by Fastly real-time analytics.
+A Go-based generative soundscape driven by live telemetry. Busy systems sound like a busy forest
+(or market, or...): more traffic, more birdsong; more data flowing, a more turbulent river.
 
-    Fastly realtime API
+    data source (simulation, Fastly, Prometheus, Wikipedia edits, ...)
           |
           v
-    Metrics -> smoothing/normalisation
+    mapping: source metrics -> named theme inputs (smoothing, normalisation to 0..1)
           |
           v
-    Theme engine -> abstract sound events (Poisson-scheduled)
+    theme engine: inputs -> abstract sound events (Poisson-scheduled)
           |
           +----> console output (text, no audio)
           |
@@ -18,124 +19,186 @@ A Go-based generative soundscape driven by Fastly real-time analytics.
           |
           +----> virtual MIDI -> a .mid file (optional; no live device yet)
 
-The theme is YAML rather than Go code.
+Themes say what things sound like, and mappings say what data drives them, so any theme can be
+played from any source. Both are YAML, not Go code.
+
+## Quick start
+
+Install Go 1.23+.
+
+Run it. With no other options this plays the forest theme from a built-in simulation that
+cycles slowly between quiet and busy:
+
+    go run ./cmd/soundscape
+
+Listen to Wikipedia being edited, live (no account needed):
+
+    go run ./cmd/soundscape --aliases wikipedia
+
+Try the other example theme:
+
+    go run ./cmd/soundscape --aliases wikipedia --theme themes/market/theme.yaml
+
+## Data sources
+
+The `--aliases` flag picks a mapping: a bare name means `mappings/<name>.yaml`, or give a path.
+The mapping names its source; `--source` overrides that (e.g. `--source simulate` to play a
+mapping against simulated data), and `--simulate` is shorthand for `--source simulate`.
+
+| Source       | Mapping                    | Needs                                                  |
+|--------------|----------------------------|--------------------------------------------------------|
+| `simulate`   | `mappings/simulate.yaml`   | nothing                                                |
+| `wikipedia`  | `mappings/wikipedia.yaml`  | internet access; optionally `--wikipedia-wikis enwiki` |
+| `prometheus` | `mappings/prometheus.yaml` | a Prometheus server: `--prometheus-url` / `PROMETHEUS_URL` (default `http://localhost:9090`) |
+| `fastly`     | `mappings/fastly.yaml`     | `FASTLY_API_TOKEN` and `--service-id` / `FASTLY_SERVICE_ID` |
+
+With no `--aliases`, the mapping defaults to the one named after `--source` (so
+`--source wikipedia` uses `mappings/wikipedia.yaml`); with neither, a configured Fastly service ID
+selects `fastly`, and otherwise the simulation is used.
+
+* **simulate**: deterministic synthetic telemetry, for developing themes without any data.
+* **wikipedia**: Wikimedia's public [recent-changes stream](https://stream.wikimedia.org/), with
+  every edit, page creation and log action across Wikipedia and its sister projects, counted into
+  per-second rates (`edits`, `new_pages`, `human_edits`, `bot_edits`, `bytes_changed`,
+  `log_delete`, ...; see `internal/wikipedia`).
+* **prometheus**: polls PromQL queries. Each input in the mapping gives a `query` that reduces to
+  one number. The example mapping queries Prometheus's own HTTP metrics, so it works against a
+  bare Prometheus. Copy it and point the queries at your own metrics.
+* **fastly**: Fastly's real-time analytics API
+  (`https://rt.fastly.com/v1/channel/<service_id>/ts/<timestamp>`), one-second records.
+
+## Themes and mappings
+
+A theme's sounds each follow an **input**, a named value from 0 to 1. A mapping says where each
+input comes from and how it's scaled:
+
+    # themes/forest/theme.yaml          # mappings/wikipedia.yaml
+    sounds:                             source: wikipedia
+      - name: birds                     inputs:
+        type: probabilistic               activity:
+        input: activity                     metric: edits
+        ...                                 smoothing: 8
+                                            normalise: { min: 1, max: 40 }
+
+Input names are free, but the bundled themes and mappings use a conventional set, so they
+interoperate:
+
+| Input      | Meaning                    | Fastly           | Wikipedia       | Forest      | Market       |
+|------------|----------------------------|------------------|-----------------|-------------|--------------|
+| `activity` | how much is happening      | `requests`       | `edits`         | birdsong    | crowd, chatter |
+| `flow`     | how much is moving through | `resp_body_bytes`| `bytes_changed` | river, splashes | accordion |
+| `trouble`  | things going wrong         | `errors`         | `log_delete`    | –           | dropped bottles |
+| `quirks`   | minor oddities             | `all_status_4xx` | `new_pages`     | woodpecker  | –            |
+
+An input the mapping doesn't provide reads as 0 (with a warning at startup).
+
+* In a mapping, `smoothing` is a time constant in seconds, and `normalise` maps the raw value
+  logarithmically into 0..1.
+* In a theme, `type: probabilistic` turns an input into a Poisson-scheduled event rate, and
+  `type: continuous` ramps it into `min_value..max_value`.
+* `output` selects how that's realised: `note`/`cc` (MIDI, via the SoundFont backend) or
+  `sample`/`sample_loop` (WAV playback, via the sample player). See DEVELOPMENT.md for the full
+  vocabulary, including how two `sample_loop` sounds crossfade.
+
+A theme is a directory: `theme.yaml` plus a `samples/` folder, so it's self-contained wherever
+it's run from (`sample_group` paths resolve relative to the theme file).
+
+## More options
+
+Also drive a SoundFont for any `note`/`cc`-output sounds in the theme:
+
+    go run ./cmd/soundscape --soundfont /path/to/your.sf2
+
+Or capture those same sounds as a Standard MIDI File (finalized on exit, including Ctrl+C):
+
+    go run ./cmd/soundscape --midi-out session.mid
+
+Pin the random seed for a reproducible run:
+
+    go run ./cmd/soundscape --seed 42
+
+Log the raw metrics as they arrive:
+
+    go run ./cmd/soundscape --aliases wikipedia --verbose
+
+Validate a theme, and optionally check it against a mapping. This catches missing or duplicate
+names, inverted ranges, out-of-range MIDI values, missing sample directories, unknown behaviour
+or output kinds, and theme inputs the mapping doesn't provide:
+
+    go run ./cmd/soundscape validate --aliases wikipedia themes/forest/theme.yaml
+
+Edit the theme or mapping while a run is going and it hot-reloads automatically. Files are
+checked once a second and validated before being applied, so an invalid edit is logged and
+ignored rather than crashing or going silent. Tuning a mapping's `normalise` ranges against live
+data this way is the quickest route to a good-sounding setup. Switching a mapping's source, or
+changing Prometheus queries, needs a restart. Disable with `--watch=false`.
 
 ## Current state
 
-* Fastly real-time analytics polling
-* `requests`, `resp_body_bytes`, `errors`, and `hits`
-* exponential smoothing, configurable normalisation
+* four data sources: simulation, Wikipedia live edits, Prometheus, and Fastly real-time analytics
+* source-independent themes: mappings bind source metrics to theme inputs, with exponential
+  smoothing and log normalisation
 * a Poisson event scheduler: a sound's `rate` is an expected events/second, not a per-tick
   probability, so a tick can naturally produce zero, one, or several events
 * an abstract sound-event model (`event.Note`/`event.Sample`/`event.Control`) so the theme engine
   never depends on a specific output backend
 * a real WAV sample player (`internal/sampler`): pitch shifting, velocity/pan, looping, click-free
   envelopes, voice stealing, and gain-smoothed crossfades between looping layers
-* two complete example themes, `forest-glade` and `farmers-market`, both playing entirely through
-  procedurally-generated placeholder samples (`cmd/gensamples`) — no SoundFont or external assets
-  required to hear something
+* two complete example themes, `forest-glade` and `farmers-market`, using real recordings (see
+  ATTRIBUTION.md), so no SoundFont or external assets are needed to hear something
 * an optional SoundFont backend (Go-MeltySynth) for `note`/`cc`-output sounds
 * an optional virtual MIDI backend: writes `note`/`cc`-output sounds as a real, playable Standard
-  MIDI File — no live device support yet (that needs cgo; see `internal/midi`'s package doc)
+  MIDI File. There's no live device support yet (that needs cgo; see `internal/midi`'s package doc)
 * console mode for development without audio
-* deterministic simulation mode so a theme can be developed without a Fastly account
-
-## Quick start
-
-Install Go 1.23+.
-
-Run the simulation — this alone produces audio, no flags needed:
-
-    go run ./cmd/soundscape --simulate
-
-Try the other example theme:
-
-    go run ./cmd/soundscape --simulate --theme themes/market/theme.yaml
-
-Run against Fastly:
-
-    FASTLY_API_TOKEN=... \
-    go run ./cmd/soundscape --service-id YOUR_SERVICE_ID
-
-Also drive a SoundFont for any `note`/`cc`-output sounds in the theme:
-
-    go run ./cmd/soundscape --simulate --soundfont /path/to/your.sf2
-
-Or capture those same sounds as a Standard MIDI File (finalized on exit, including Ctrl+C):
-
-    go run ./cmd/soundscape --simulate --midi-out session.mid
-
-Pin the random seed for a reproducible run:
-
-    go run ./cmd/soundscape --simulate --seed 42
-
-Validate a theme (missing/duplicate names, unknown sources, inverted ranges, out-of-range MIDI
-values, missing sample directories, unknown behaviour/output kinds):
-
-    go run ./cmd/soundscape validate themes/forest/theme.yaml
-
-Edit `theme.yaml` while a run is going and it hot-reloads automatically (checked once a second,
-validated before being applied — an invalid edit is logged and ignored rather than crashing or
-going silent). Disable with `--watch=false`.
-
-## Fastly API
-
-The client uses the real-time analytics endpoint:
-
-    https://rt.fastly.com/v1/channel/<service_id>/ts/<timestamp>
-
-The API reports one-second records and returns a `Timestamp` to use for the next request.
-
-## Theme format
-
-See `themes/forest/theme.yaml` and `themes/market/theme.yaml`. A theme is a directory: `theme.yaml`
-plus a `samples/` folder, so it's self-contained wherever it's run from (`sample_group` paths
-resolve relative to the theme file).
-
-* `source` describes a Fastly metric: `smoothing` controls temporal smoothing, `normalise` maps
-  it into 0..1.
-* `type: probabilistic` turns a value into a Poisson-scheduled event rate; `type: continuous`
-  ramps it into `min_value..max_value`.
-* `output` selects how that's realised: `note`/`cc` (MIDI, via the SoundFont backend) or
-  `sample`/`sample_loop` (WAV playback, via the sample player). See DEVELOPMENT.md for the full
-  vocabulary, including how two `sample_loop` sounds crossfade.
 
 `cmd/gensamples` procedurally synthesizes placeholder sample assets (tone sweeps for chirps,
-filtered noise for rivers/crowds/splashes) — useful for bootstrapping a new theme before real
-recordings are ready:
+filtered noise for rivers/crowds/splashes), which is useful for bootstrapping a new theme before
+real recordings are ready:
 
     go run ./cmd/gensamples --theme forest   # writes to themes/forest/samples
     go run ./cmd/gensamples --theme market   # writes to themes/market/samples
 
-The theme engine is intended to grow a small vocabulary of reusable behaviours rather than requiring a Go plugin for every theme.
-
 ## Architecture
 
-    internal/fastly     Fastly API client
-    internal/metrics    smoothing and normalisation
-    internal/theme      YAML theme + behaviour engine
-    internal/scheduler  Poisson event-rate scheduler
-    internal/event      abstract sound-event model (Note/Sample/Control)
-    internal/output     sound output abstraction (incl. Multi fan-out)
-    internal/audio      shared renderer->Oto ring-buffer plumbing
-    internal/synth      SoundFont output backend
-    internal/sampler    WAV sample-player output backend
-    internal/midi       virtual (file-based) MIDI output backend
-    cmd/soundscape      CLI
-    cmd/gensamples      placeholder sample asset generator
+    internal/source      Source interface + the built-in simulation
+    internal/wikipedia   Wikimedia recent-changes stream source
+    internal/prometheus  Prometheus query source
+    internal/fastly      Fastly real-time API source
+    internal/mapping     mapping files: source metrics -> conditioned theme inputs
+    internal/metrics     smoothing and normalisation
+    internal/theme       YAML theme + behaviour engine
+    internal/scheduler   Poisson event-rate scheduler
+    internal/event       abstract sound-event model (Note/Sample/Control)
+    internal/output      sound output abstraction (incl. Multi fan-out)
+    internal/audio       shared renderer->Oto ring-buffer plumbing
+    internal/synth       SoundFont output backend
+    internal/sampler     WAV sample-player output backend
+    internal/midi        virtual (file-based) MIDI output backend
+    cmd/soundscape       CLI
+    cmd/gensamples       placeholder sample asset generator
+    mappings/            bundled mappings, one per source
+    themes/              bundled themes
 
-The theme engine only depends on `internal/event` and `internal/output`'s `Output` interface,
-never on a concrete backend. `cmd/soundscape` picks backends automatically: the sample player
-starts whenever the theme references any `sample_group` (no flag needed), the SoundFont backend
-starts if `--soundfont` is given, the MIDI file backend starts if `--midi-out` is given, and any
-combination of these can run at once via `output.Multi`; with none, it falls back to the
+A `source.Source` just emits a timestamped `map[string]float64` each tick; a
+`mapping.Conditioner` turns that into theme inputs; and the theme engine only depends on
+`internal/event` and `internal/output`'s `Output` interface, never on a concrete source or
+backend. To add a source, implement `Run(ctx, emit)` and add a case to `cmd/soundscape`'s
+`buildSource`.
+
+`cmd/soundscape` picks output backends automatically:
+
+* the sample player starts whenever the theme references any `sample_group`, with no flag needed
+* the SoundFont backend starts if `--soundfont` is given
+* the MIDI file backend starts if `--midi-out` is given
+
+Any combination of these can run at once via `output.Multi`. With none, it falls back to the
 text-only Console backend.
 
 ## Next steps
 
-1. Add a live MIDI output backend (cgo + RtMidi, behind a build tag — see `internal/midi`'s
+1. A third theme: a busy road (traffic bed plus horns, motorbikes, screeching tyres).
+2. Add a live MIDI output backend (cgo + RtMidi, behind a build tag; see `internal/midi`'s
    package doc for why that's a bigger step than everything else here).
-2. Add richer stochastic actors such as flocks, crowds and weather.
-3. Add MIDI 2.0/OSC output.
-4. Embed themes and optionally assets into a single distributable binary.
-5. Replace the procedurally-generated placeholder samples with real recordings.
+3. Add richer stochastic actors such as flocks, crowds and weather.
+4. Add MIDI 2.0/OSC output.
+5. Embed themes, mappings and optionally assets into a single distributable binary.

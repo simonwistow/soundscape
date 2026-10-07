@@ -1,11 +1,15 @@
 package fastly
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/simonwistow/soundscape/internal/source"
 )
 
 type Client struct {
@@ -83,4 +87,43 @@ func (c *Client) Fetch(timestamp int64) (Response, error) {
 	}
 
 	return result, nil
+}
+
+// Source adapts Client to source.Source: it follows the real-time API's
+// Timestamp cursor and emits each one-second record as a tick.
+type Source struct {
+	Client  *Client
+	Verbose bool
+}
+
+func (s Source) Run(ctx context.Context, emit source.Emit) error {
+	var timestamp int64
+	for ctx.Err() == nil {
+		resp, err := s.Client.Fetch(timestamp)
+		if err != nil {
+			log.Printf("fastly: %v", err)
+			sleep(ctx, time.Second)
+			continue
+		}
+
+		if s.Verbose {
+			log.Printf("fastly: timestamp=%d records=%d delay=%ds",
+				resp.Timestamp, len(resp.Data), resp.AggregateDelay)
+		}
+
+		for _, record := range resp.Data {
+			emit(record.Recorded, record.Metrics())
+		}
+
+		timestamp = resp.Timestamp
+		sleep(ctx, 200*time.Millisecond)
+	}
+	return ctx.Err()
+}
+
+func sleep(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
+	}
 }
