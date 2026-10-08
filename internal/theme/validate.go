@@ -118,6 +118,10 @@ func validateProbabilistic(label string, s Sound) []error {
 func validateContinuous(label string, s Sound) []error {
 	var errs []error
 
+	if s.Spread {
+		errs = append(errs, ValidationError{Sound: label, Msg: "spread only applies to probabilistic sounds"})
+	}
+
 	switch s.Output {
 	case "", "cc":
 		if s.Controller < 0 || s.Controller > 127 {

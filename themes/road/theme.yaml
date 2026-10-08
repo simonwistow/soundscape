@@ -33,6 +33,7 @@ sounds:
   - name: motorbike
     type: probabilistic
     output: sample
+    spread: true
     input: flow
     rate:
       min: 0.01
@@ -49,6 +50,7 @@ sounds:
   - name: horn
     type: probabilistic
     output: sample
+    spread: true
     input: quirks
     rate:
       min: 0.005
@@ -65,6 +67,7 @@ sounds:
   - name: screech
     type: probabilistic
     output: sample
+    spread: true
     input: trouble
     rate:
       min: 0.003

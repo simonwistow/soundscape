@@ -2,6 +2,7 @@ package theme
 
 import (
 	"testing"
+	"time"
 
 	"github.com/simonwistow/soundscape/internal/event"
 )
@@ -264,5 +265,61 @@ func TestEngineSampleLoopEmitsLoopEvents(t *testing.T) {
 	}
 	if rushing.Velocity < 0.8 {
 		t.Fatalf("rushing layer gain should rise with flow, got %v", rushing.Velocity)
+	}
+}
+
+func TestEngineSpreadDelaysEventsWithinTheTick(t *testing.T) {
+	th := testTheme()
+	th.Sounds = th.Sounds[:1]
+	th.Sounds[0].Spread = true
+
+	out := &recordingOutput{}
+	engine := NewEngineWithSeed(th, out, 7)
+	var delays []time.Duration
+	engine.after = func(d time.Duration, f func()) {
+		delays = append(delays, d)
+		f()
+	}
+
+	// Ticks two seconds apart, so the spread should reach past one second.
+	ts := int64(1000)
+	for i := 0; i < 50; i++ {
+		engine.Process(ts, map[string]float64{"activity": 1})
+		ts += 2
+	}
+
+	if len(delays) == 0 {
+		t.Fatal("expected spread events to be scheduled")
+	}
+	if len(out.events) != len(delays) {
+		t.Fatalf("sent %d events, scheduled %d", len(out.events), len(delays))
+	}
+	var max time.Duration
+	for _, d := range delays {
+		if d < 0 || d >= 2*time.Second {
+			t.Fatalf("delay %v outside the 2s tick", d)
+		}
+		if d > max {
+			max = d
+		}
+	}
+	if max <= time.Second {
+		t.Fatalf("longest delay %v; expected some beyond 1s with 2s ticks", max)
+	}
+}
+
+func TestEngineWithoutSpreadSendsImmediately(t *testing.T) {
+	out := &recordingOutput{}
+	engine := NewEngineWithSeed(testTheme(), out, 7)
+	engine.after = func(time.Duration, func()) {
+		t.Fatal("events without spread should not be delayed")
+	}
+	ts := int64(1000)
+	for i := 0; i < 20; i++ {
+		engine.Process(ts, map[string]float64{"activity": 1})
+		ts++
+	}
+	if len(out.events) == 0 {
+		t.Fatal("expected events")
 	}
 }

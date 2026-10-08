@@ -32,6 +32,7 @@ sounds:
   - name: chatter
     type: probabilistic
     output: sample
+    spread: true
     input: activity
     rate:
       min: 0.05
@@ -48,6 +49,7 @@ sounds:
   - name: bottles
     type: probabilistic
     output: sample
+    spread: true
     input: trouble
     rate:
       min: 0.005
@@ -67,6 +69,7 @@ sounds:
   - name: accordion
     type: probabilistic
     output: sample
+    spread: true
     input: flow
     rate:
       min: 0.01

@@ -11,6 +11,9 @@ name: forest-glade
 # type: probabilistic
 #   rate is an expected number of events per second (a Poisson process),
 #   not a per-tick probability - a tick can produce zero, one, or several.
+#   With spread: true, a tick's events are scattered at random across the
+#   time until the next tick, rather than all sounding together as it
+#   arrives.
 #
 # type: continuous
 #   ramps a normalised value into min_value..max_value.
@@ -31,6 +34,7 @@ sounds:
   - name: birds
     type: probabilistic
     output: sample
+    spread: true
     input: activity
     rate:
       min: 0.03
@@ -67,6 +71,7 @@ sounds:
   - name: splash
     type: probabilistic
     output: sample
+    spread: true
     input: flow
     rate:
       min: 0.05
@@ -83,6 +88,7 @@ sounds:
   - name: woodpecker
     type: probabilistic
     output: sample
+    spread: true
     input: quirks
     rate:
       min: 0.005

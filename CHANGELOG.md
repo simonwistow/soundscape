@@ -8,6 +8,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `spread: true` on a probabilistic sound scatters each tick's events at random across the time until the next tick, instead of sounding them all together as the tick arrives. The bundled forest, market and road themes use it.
 - Licensed under the GNU General Public License version 3. The bundled recordings keep their own licenses, listed in `ATTRIBUTION.md`.
 
 ## [0.1.0] - 2026-10-07

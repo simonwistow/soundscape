@@ -31,6 +31,12 @@ several events rather than at most one. `elapsed_seconds` is derived from the ac
 record timestamps (clamped to 10s) rather than assumed to always be 1 second, so gaps in polling
 don't unleash a flood of catch-up events.
 
+A tick's events are sent as it's processed, so several in one tick sound together, on a beat set
+by how often the source reports (once a second, for most). A sound with `spread: true` instead
+sends each one after a random delay of up to `elapsed_seconds`, scattering them across the time
+until the next tick. That suits a flock of birds or a bass line; a melody can sound better left on
+the beat.
+
 Randomness is seeded via `theme.NewEngineWithSeed`; `theme.NewEngine` seeds from the current time
 for live variation, and the CLI's `--seed` flag can pin it for reproducible runs.
 

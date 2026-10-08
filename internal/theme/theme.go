@@ -44,6 +44,12 @@ type Range struct {
 // player. A "sample_loop" sound's ramped value (min_value..max_value) is
 // used directly as loop gain, so two sample_loop sounds sharing an input
 // with opposite min/max ramps crossfade against each other.
+//
+// A probabilistic sound's events otherwise all happen as the tick that
+// produced them is processed, so several in one tick sound together, on a
+// beat set by how often the source reports. Spread scatters them at random
+// across the time until the next tick (about a second, for most sources)
+// instead.
 type Sound struct {
 	Name        string  `yaml:"name"`
 	Type        string  `yaml:"type"`
@@ -60,6 +66,7 @@ type Sound struct {
 	SampleGroup string  `yaml:"sample_group"`
 	Pitch       float64 `yaml:"pitch"`
 	PitchJitter *Range  `yaml:"pitch_jitter"`
+	Spread      bool    `yaml:"spread"`
 }
 
 type Rate struct {
@@ -73,6 +80,9 @@ type Engine struct {
 	output   output.Output
 	rng      *rand.Rand
 	lastTick int64
+
+	// after runs f once d has passed; time.AfterFunc, except in tests.
+	after func(d time.Duration, f func())
 }
 
 func Load(path string) (Theme, error) {
@@ -119,6 +129,7 @@ func NewEngineWithSeed(t Theme, out output.Output, seed int64) *Engine {
 		theme:  t,
 		output: out,
 		rng:    rand.New(rand.NewSource(seed)),
+		after:  func(d time.Duration, f func()) { time.AfterFunc(d, f) },
 	}
 }
 
@@ -198,6 +209,12 @@ func (e *Engine) processProbabilistic(sound Sound, value float64, dt float64) {
 	count := scheduler.PoissonCount(e.rng, lambda)
 
 	for i := 0; i < count; i++ {
+		var ev event.Event
+		var delay time.Duration
+		if sound.Spread {
+			delay = time.Duration(e.rng.Float64() * dt * float64(time.Second))
+		}
+
 		velocity := 80.0
 		if sound.Velocity != nil {
 			velocity = metrics.Lerp(sound.Velocity.Min, sound.Velocity.Max, value)
@@ -217,7 +234,7 @@ func (e *Engine) processProbabilistic(sound Sound, value float64, dt float64) {
 			// birds in a flock) from all sounding like the same point.
 			pan := (e.rng.Float64()*2 - 1) * 0.4
 
-			_ = e.output.Send(event.Sample{
+			ev = event.Sample{
 				Actor:      sound.Name,
 				Channel:    sound.Channel,
 				Group:      sound.SampleGroup,
@@ -225,18 +242,24 @@ func (e *Engine) processProbabilistic(sound Sound, value float64, dt float64) {
 				Velocity:   velocity,
 				Pan:        pan,
 				DurationMs: duration,
-			})
-			continue
+			}
+		} else {
+			ev = event.Note{
+				Actor:      sound.Name,
+				Channel:    sound.Channel,
+				Pitch:      sound.Notes[e.rng.Intn(len(sound.Notes))],
+				Velocity:   int(velocity),
+				DurationMs: duration,
+			}
 		}
 
-		pitch := sound.Notes[e.rng.Intn(len(sound.Notes))]
-		_ = e.output.Send(event.Note{
-			Actor:      sound.Name,
-			Channel:    sound.Channel,
-			Pitch:      pitch,
-			Velocity:   int(velocity),
-			DurationMs: duration,
-		})
+		if delay == 0 {
+			_ = e.output.Send(ev)
+			continue
+		}
+		// Everything random is decided above, under e.mu; only the send
+		// waits, and the backends are safe to call from another goroutine.
+		e.after(delay, func() { _ = e.output.Send(ev) })
 	}
 }
 

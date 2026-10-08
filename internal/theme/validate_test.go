@@ -137,3 +137,11 @@ func TestValidateAllowsInvertedContinuousRampForCrossfade(t *testing.T) {
 		t.Fatalf("did not expect an invalid-range error for a crossfade ramp, got: %v", errs)
 	}
 }
+
+func TestValidateRejectsSpreadOnContinuous(t *testing.T) {
+	th := testTheme()
+	th.Sounds[1].Spread = true
+	if errs := Validate(th); !containsMsg(errs, "spread only applies to probabilistic sounds") {
+		t.Fatalf("expected a spread error, got: %v", errs)
+	}
+}
