@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-08
+
 ### Added
 
 - Live MIDI output. `--midi-virtual NAME` creates a virtual MIDI port for a synth or DAW to play from (macOS and Linux), and `--midi-port NAME` sends to an existing port, which `soundscape midi-ports` lists. Building from source now needs a C++ compiler on macOS too.
@@ -39,5 +41,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - There is no live MIDI device output yet, only MIDI files.
 - On Linux, audio goes through ALSA, so `libasound2` must be installed.
 
-[Unreleased]: https://github.com/simonwistow/soundscape/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/simonwistow/soundscape/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/simonwistow/soundscape/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/simonwistow/soundscape/releases/tag/v0.1.0
