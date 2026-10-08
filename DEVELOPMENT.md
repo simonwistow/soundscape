@@ -46,7 +46,8 @@ Each `Sound` has a `type` (the scheduling primitive: `probabilistic` or `continu
 `output` (how that primitive is realised):
 
 * `output: note` (default for `probabilistic`) and `output: cc` (default for `continuous`) emit
-  MIDI-style `event.Note`/`event.Control` values for the SoundFont backend (`internal/synth`).
+  MIDI-style `event.Note`/`event.Control` values, for the SoundFont backend (`internal/synth`)
+  and the MIDI backends (`internal/midi`: live to a port, or recorded to a file).
 * `output: sample` emits a one-shot `event.Sample`, played by the WAV sample player
   (`internal/sampler`) with a random pick from `sample_group`, optional `pitch_jitter`, and a
   small random pan spread.
@@ -76,9 +77,9 @@ for SF2-driven sounds) and `internal/sampler` (a from-scratch WAV player, for `s
 simultaneously via `output.Multi` if a theme mixes both output styles. Oto provides cross-platform
 audio output; Go-MeltySynth is pure Go and supports SoundFonts.
 
-The external-MIDI backend is intentionally not bundled into this first prototype because the
-cross-platform MIDI device layer has OS-specific dependencies. The output interface is already
-designed so it can be added without changing the theme engine.
+Live MIDI (`internal/midi`'s `LiveOutput`) goes through RtMidi, which is C++ and talks to CoreMIDI
+or ALSA, so building needs cgo and a C++ compiler on every platform. On Linux that was already
+true for Oto's ALSA output; on macOS, Oto alone needed neither.
 
 ## Important
 

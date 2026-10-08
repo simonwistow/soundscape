@@ -33,6 +33,9 @@ func main() {
 		case "validate":
 			runValidate(os.Args[2:])
 			return
+		case "midi-ports":
+			runMIDIPorts()
+			return
 		case "version", "--version":
 			fmt.Println("soundscape", buildVersion())
 			return
@@ -54,7 +57,9 @@ func main() {
 
 		themePath = flag.String("theme", "themes/forest/theme.yaml", "theme YAML file")
 		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, for note/cc-output sounds")
-		midiOut   = flag.String("midi-out", "", "optional path to write a Standard MIDI File (.mid) of note/cc-output sounds; no live device support yet, see internal/midi")
+		midiOut   = flag.String("midi-out", "", "optional path to write a Standard MIDI File (.mid) of note/cc-output sounds")
+		midiPort  = flag.String("midi-port", "", "send note/cc-output sounds to this MIDI output port, live (see `soundscape midi-ports`)")
+		midiVirt  = flag.String("midi-virtual", "", "create a virtual MIDI port with this name and send note/cc-output sounds to it, live (macOS and Linux)")
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
 		watch     = flag.Bool("watch", true, "reload the theme and mapping files automatically when they change")
@@ -100,7 +105,12 @@ func main() {
 	}
 	warnUnbound(m, th)
 
-	out, player, closeOutput, err := buildOutput(th, *soundFont, *midiOut)
+	out, player, closeOutput, err := buildOutput(th, outputConfig{
+		soundFont:   *soundFont,
+		midiOut:     *midiOut,
+		midiPort:    *midiPort,
+		midiVirtual: *midiVirt,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -286,15 +296,38 @@ func runValidate(args []string) {
 	os.Exit(1)
 }
 
+// runMIDIPorts implements `soundscape midi-ports`: list the MIDI output
+// ports --midi-port can send to.
+func runMIDIPorts() {
+	ports, err := midi.Ports()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(ports) == 0 {
+		fmt.Println("no MIDI output ports (use --midi-virtual to create one)")
+		return
+	}
+	for _, p := range ports {
+		fmt.Println(p)
+	}
+}
+
+type outputConfig struct {
+	soundFont             string
+	midiOut               string
+	midiPort, midiVirtual string
+}
+
 // buildOutput assembles whichever output backends the theme and flags call
 // for: the WAV sample player is started automatically whenever the theme
 // references any sample_group (no flag needed, so a sample-only theme is
 // self-contained), the SoundFont backend is added if --soundfont is given,
-// and the virtual MIDI file backend is added if --midi-out is given. A
-// theme can use several of these at once (e.g. sampled birds alongside a
-// SoundFont-driven instrument). With none, falls back to the Console
-// backend so the theme can still be exercised with no audio at all.
-func buildOutput(th theme.Theme, soundFontPath, midiOutPath string) (output.Output, *sampler.Player, func(), error) {
+// the MIDI file backend if --midi-out is given, and a live MIDI port if
+// --midi-port or --midi-virtual is. A theme can use several of these at
+// once (e.g. sampled birds alongside a SoundFont-driven instrument). With
+// none, falls back to the Console backend so the theme can still be
+// exercised with no audio at all.
+func buildOutput(th theme.Theme, cfg outputConfig) (output.Output, *sampler.Player, func(), error) {
 	var outs []output.Output
 	var closers []func()
 	var player *sampler.Player
@@ -315,24 +348,55 @@ func buildOutput(th theme.Theme, soundFontPath, midiOutPath string) (output.Outp
 		closers = append(closers, p.Close)
 	}
 
-	if soundFontPath != "" {
-		sf, err := synth.NewSoundFontOutput(soundFontPath)
+	// Close whatever was already started if a later backend fails.
+	fail := func(err error) (output.Output, *sampler.Player, func(), error) {
+		for _, c := range closers {
+			c()
+		}
+		return nil, nil, nil, err
+	}
+
+	if cfg.soundFont != "" {
+		sf, err := synth.NewSoundFontOutput(cfg.soundFont)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("starting SoundFont output: %w", err)
+			return fail(fmt.Errorf("starting SoundFont output: %w", err))
 		}
 		outs = append(outs, sf)
 		closers = append(closers, sf.Close)
 	}
 
-	if midiOutPath != "" {
-		m := midi.NewVirtualOutput(midiOutPath)
+	if cfg.midiOut != "" {
+		m := midi.NewVirtualOutput(cfg.midiOut)
 		outs = append(outs, m)
 		closers = append(closers, func() {
 			if err := m.Close(); err != nil {
-				log.Printf("midi: failed to write %s: %v", midiOutPath, err)
+				log.Printf("midi: failed to write %s: %v", cfg.midiOut, err)
 				return
 			}
-			log.Printf("midi: wrote %s", midiOutPath)
+			log.Printf("midi: wrote %s", cfg.midiOut)
+		})
+	}
+
+	if cfg.midiPort != "" && cfg.midiVirtual != "" {
+		return fail(fmt.Errorf("use --midi-port or --midi-virtual, not both"))
+	}
+	if cfg.midiPort != "" || cfg.midiVirtual != "" {
+		var live *midi.LiveOutput
+		var err error
+		if cfg.midiPort != "" {
+			live, err = midi.OpenPort(cfg.midiPort)
+		} else {
+			live, err = midi.OpenVirtual(cfg.midiVirtual)
+		}
+		if err != nil {
+			return fail(err)
+		}
+		log.Printf("midi: sending to %s", live)
+		outs = append(outs, live)
+		closers = append(closers, func() {
+			if err := live.Close(); err != nil {
+				log.Printf("midi: closing %s: %v", live, err)
+			}
 		})
 	}
 

@@ -1,16 +1,12 @@
-// Package midi provides a virtual MIDI output: it turns abstract sound
-// events into real Standard MIDI File (.mid) bytes that any DAW or player
-// can open, without needing a live MIDI device.
+// Package midi turns note and control events into MIDI, two ways:
+// VirtualOutput records them as a Standard MIDI File (.mid) that any DAW or
+// player can open, and LiveOutput sends them to a MIDI port in real time.
 //
-// Reaching an actual external device/DAW in real time needs cgo bindings to
-// a system MIDI library (e.g. RtMidi via CoreMIDI on macOS) — there's no
-// pure-Go way to do it. That's a meaningfully different build/dependency
-// story than the rest of this project (which needs nothing beyond `go
-// build`), so it's deliberately deferred; when it's added it should sit
-// behind a build tag so the default build stays dependency-free. This
-// package is the interim: real, playable MIDI output today, upgradable to
-// a live backend later without changing the theme engine at all (it's just
-// another output.Output).
+// LiveOutput uses RtMidi (through gomidi's rtmididrv), which talks to the
+// system's MIDI layer: CoreMIDI on macOS, ALSA on Linux. There's no pure-Go
+// way to do that, so building this package needs cgo and a C++ compiler.
+// Linux already needed cgo for ALSA audio, so the only new requirement is
+// on macOS, where the Xcode command line tools provide it.
 package midi
 
 import (

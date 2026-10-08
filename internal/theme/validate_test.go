@@ -145,3 +145,13 @@ func TestValidateRejectsSpreadOnContinuous(t *testing.T) {
 		t.Fatalf("expected a spread error, got: %v", errs)
 	}
 }
+
+func TestValidatePentatonicThemePasses(t *testing.T) {
+	th, err := Load("../../themes/pentatonic/theme.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if errs := Validate(th); len(errs) != 0 {
+		t.Fatalf("expected the pentatonic theme to validate cleanly, got: %v", errs)
+	}
+}

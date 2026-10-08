@@ -8,6 +8,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Live MIDI output. `--midi-virtual NAME` creates a virtual MIDI port for a synth or DAW to play from (macOS and Linux), and `--midi-port NAME` sends to an existing port, which `soundscape midi-ports` lists. Building from source now needs a C++ compiler on macOS too.
+- The `pentatonic` theme, which plays MIDI notes: a melody on `activity`, a bass line on `flow`, and clashing notes on `trouble`.
 - `spread: true` on a probabilistic sound scatters each tick's events at random across the time until the next tick, instead of sounding them all together as the tick arrives. The bundled forest, market and road themes use it.
 - Licensed under the GNU General Public License version 3. The bundled recordings keep their own licenses, listed in `ATTRIBUTION.md`.
 

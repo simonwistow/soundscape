@@ -9,8 +9,7 @@ import (
 
 // VirtualOutput is an output.Output backed by a Writer: it captures a
 // session's note/control events and, on Close, writes them out as a
-// Standard MIDI File at path. It does not reach a live device — see the
-// package doc comment.
+// Standard MIDI File at path. LiveOutput is the real-time equivalent.
 type VirtualOutput struct {
 	writer *Writer
 	path   string

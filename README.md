@@ -17,7 +17,7 @@ A Go-based generative soundscape driven by live telemetry. Busy systems sound li
           |
           +----> SoundFont synth -> speakers (optional, needs an .sf2 file)
           |
-          +----> virtual MIDI -> a .mid file (optional; no live device yet)
+          +----> MIDI -> a synth or DAW, live, and/or a .mid file (optional)
 
 Themes say what things sound like, and mappings say what data drives them, so any theme can be
 played from any source. Both are YAML, not Go code.
@@ -30,8 +30,8 @@ Download a prebuilt release for Linux x86-64 or macOS on Apple silicon from the
 Linux build needs Ubuntu 24.04 or later (glibc 2.39) and the ALSA library (`libasound2`, packaged
 as `libasound2t64` on Ubuntu 24.04+).
 
-Or build from source, with Go 1.24+ (and, on Linux, the ALSA headers: `libasound2-dev`). The
-examples below use `go run`:
+Or build from source, with Go 1.24+ and a C and C++ compiler (on macOS, the Xcode command line
+tools; on Linux, also the ALSA headers: `libasound2-dev`). The examples below use `go run`:
 
 Run it. With no other options this plays the forest theme from a built-in simulation that
 cycles slowly between quiet and busy:
@@ -46,6 +46,9 @@ Try the other example themes:
 
     go run ./cmd/soundscape --aliases wikipedia --theme themes/market/theme.yaml
     go run ./cmd/soundscape --aliases wikipedia --theme themes/road/theme.yaml
+
+The `pentatonic` theme plays MIDI notes rather than recordings, so it needs a synth to play them;
+see [MIDI](#midi) below.
 
 ## Data sources
 
@@ -98,28 +101,58 @@ interoperate:
 | `trouble`  | things going wrong         | `errors`         | `log_delete`    | –           | dropped bottles | tyre screeches |
 | `quirks`   | minor oddities             | `all_status_4xx` | `new_pages`     | woodpecker  | –            | car horns |
 
+The `pentatonic` theme plays a melody on `activity`, a bass line on `flow`, and notes from
+outside its scale on `trouble`.
+
 An input the mapping doesn't provide reads as 0 (with a warning at startup).
 
 * In a mapping, `smoothing` is a time constant in seconds, and `normalise` maps the raw value
   logarithmically into 0..1.
 * In a theme, `type: probabilistic` turns an input into a Poisson-scheduled event rate, and
   `type: continuous` ramps it into `min_value..max_value`.
-* `output` selects how that's realised: `note`/`cc` (MIDI, via the SoundFont backend) or
+* `output` selects how that's realised: `note`/`cc` (MIDI, played live, through a SoundFont, or
+  recorded to a file) or
   `sample`/`sample_loop` (WAV playback, via the sample player). See DEVELOPMENT.md for the full
   vocabulary, including how two `sample_loop` sounds crossfade.
 
 A theme is a directory: `theme.yaml` plus a `samples/` folder, so it's self-contained wherever
 it's run from (`sample_group` paths resolve relative to the theme file).
 
+## MIDI
+
+A theme's `note`/`cc`-output sounds can be sent, live, to anything that plays MIDI: a hardware
+synth, a DAW, or a software instrument. No hardware is needed.
+
+Create a virtual MIDI port called `soundscape`, which other software sees as a MIDI input:
+
+    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --midi-virtual soundscape
+
+On macOS, GarageBand plays it with no setup: create an empty project with a Software Instrument
+track, and it plays whatever arrives on any MIDI input. On Linux, connect the port to a synth such
+as FluidSynth with `aconnect` (or watch the raw messages with `aseqdump`). Windows has no virtual
+ports.
+
+Or send to a MIDI output port that already exists, such as a synth or macOS's IAC Driver (enable
+it in Audio MIDI Setup). A name that matches no port exactly can be part of one name, so `IAC`
+finds `IAC Driver Bus 1`:
+
+    go run ./cmd/soundscape midi-ports
+    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --midi-port IAC
+
+Each sound's `channel` (0-15) becomes its MIDI channel (1-16 in most software), so a DAW can give
+each sound its own instrument.
+
+Play the same sounds through a SoundFont, with no other software:
+
+    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --soundfont /path/to/your.sf2
+
+Or record them as a Standard MIDI File (finalized on exit, including Ctrl+C):
+
+    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --midi-out session.mid
+
+Live MIDI, a SoundFont and a MIDI file can all be used at once, alongside a theme's samples.
+
 ## More options
-
-Also drive a SoundFont for any `note`/`cc`-output sounds in the theme:
-
-    go run ./cmd/soundscape --soundfont /path/to/your.sf2
-
-Or capture those same sounds as a Standard MIDI File (finalized on exit, including Ctrl+C):
-
-    go run ./cmd/soundscape --midi-out session.mid
 
 Pin the random seed for a reproducible run:
 
@@ -153,10 +186,11 @@ changing Prometheus queries, needs a restart. Disable with `--watch=false`.
 * a real WAV sample player (`internal/sampler`): pitch shifting, velocity/pan, looping, click-free
   envelopes, voice stealing, and gain-smoothed crossfades between looping layers
 * three complete example themes, `forest-glade`, `farmers-market` and `busy-road`, using real
-  recordings (see ATTRIBUTION.md), so no SoundFont or external assets are needed to hear something
+  recordings (see ATTRIBUTION.md), so no SoundFont or external assets are needed to hear something,
+  and a fourth, `pentatonic`, that plays MIDI notes
 * an optional SoundFont backend (Go-MeltySynth) for `note`/`cc`-output sounds
-* an optional virtual MIDI backend: writes `note`/`cc`-output sounds as a real, playable Standard
-  MIDI File. There's no live device support yet (that needs cgo; see `internal/midi`'s package doc)
+* optional MIDI output for `note`/`cc`-output sounds: live, to a MIDI port or a virtual port of
+  its own (RtMidi), and/or recorded as a Standard MIDI File
 * console mode for development without audio
 
 `cmd/gensamples` procedurally synthesizes placeholder sample assets (tone sweeps for chirps,
@@ -181,7 +215,7 @@ real recordings are ready:
     internal/audio       shared renderer->Oto ring-buffer plumbing
     internal/synth       SoundFont output backend
     internal/sampler     WAV sample-player output backend
-    internal/midi        virtual (file-based) MIDI output backend
+    internal/midi        MIDI output backends: live (RtMidi) and Standard MIDI File
     cmd/soundscape       CLI
     cmd/gensamples       placeholder sample asset generator
     internal/cmd/changelog  CHANGELOG.md linting and release tooling (see RELEASING.md)
@@ -199,17 +233,16 @@ backend. To add a source, implement `Run(ctx, emit)` and add a case to `cmd/soun
 * the sample player starts whenever the theme references any `sample_group`, with no flag needed
 * the SoundFont backend starts if `--soundfont` is given
 * the MIDI file backend starts if `--midi-out` is given
+* live MIDI output starts if `--midi-port` or `--midi-virtual` is given
 
 Any combination of these can run at once via `output.Multi`. With none, it falls back to the
 text-only Console backend.
 
 ## Next steps
 
-1. Add a live MIDI output backend (cgo + RtMidi, behind a build tag; see `internal/midi`'s
-   package doc for why that's a bigger step than everything else here).
-2. Add richer stochastic actors such as flocks, crowds and weather.
-3. Add MIDI 2.0/OSC output.
-4. Embed themes, mappings and optionally assets into a single distributable binary.
+1. Add richer stochastic actors such as flocks, crowds and weather.
+2. Add MIDI 2.0/OSC output.
+3. Embed themes, mappings and optionally assets into a single distributable binary.
 
 ## License
 
