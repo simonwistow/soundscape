@@ -33,6 +33,10 @@ func (v *VirtualOutput) Send(e event.Event) error {
 		v.writer.ControlChange(ev.Channel, ev.Controller, int(ev.Value))
 		return nil
 
+	case event.Program:
+		v.writer.ProgramChange(ev.Channel, ev.Bank, ev.Program)
+		return nil
+
 	default:
 		return fmt.Errorf("midi: unsupported event %T (only note/cc-output sounds can reach MIDI)", e)
 	}

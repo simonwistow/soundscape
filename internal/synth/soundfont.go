@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -116,11 +117,48 @@ func (s *SoundFontOutput) Send(e event.Event) error {
 			int32(v.Value),
 		)
 
+	case event.Program:
+		s.synth.ProcessMidiMessage(int32(v.Channel), 0xB0, 0x00, int32(v.Bank)) // bank select
+		s.synth.ProcessMidiMessage(int32(v.Channel), 0xC0, int32(v.Program), 0)
+
 	default:
 		return fmt.Errorf("unsupported event %T", e)
 	}
 
 	return nil
+}
+
+// Preset is one instrument in a SoundFont, selected by its bank and
+// program number.
+type Preset struct {
+	Bank, Program int
+	Name          string
+}
+
+// Presets lists the instruments in the SoundFont at path, by bank and then
+// program.
+func Presets(path string) ([]Preset, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	sf, err := meltysynth.NewSoundFont(f)
+	if err != nil {
+		return nil, err
+	}
+	presets := make([]Preset, len(sf.Presets))
+	for i, p := range sf.Presets {
+		presets[i] = Preset{Bank: int(p.BankNumber), Program: int(p.PatchNumber), Name: p.Name}
+	}
+	sort.Slice(presets, func(i, j int) bool {
+		if presets[i].Bank != presets[j].Bank {
+			return presets[i].Bank < presets[j].Bank
+		}
+		return presets[i].Program < presets[j].Program
+	})
+	return presets, nil
 }
 
 func (s *SoundFontOutput) Close() {

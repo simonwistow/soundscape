@@ -142,9 +142,20 @@ finds `IAC Driver Bus 1`:
 Each sound's `channel` (0-15) becomes its MIDI channel (1-16 in most software), so a DAW can give
 each sound its own instrument.
 
-Play the same sounds through a SoundFont, with no other software:
+Play the same sounds through a SoundFont, with no other software. Any General MIDI SoundFont
+will do, such as the freely licensed
+[GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS):
 
     go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --soundfont /path/to/your.sf2
+
+A sound's `program` picks its instrument, on a SoundFont or on any General MIDI synth or DAW that
+follows program changes (GarageBand doesn't). In General MIDI, 11 is a vibraphone, 32 an acoustic
+bass, and so on; list the instruments in a SoundFont, with the `bank` and `program` that select
+each, with:
+
+    go run ./cmd/soundscape soundfont-presets /path/to/your.sf2
+
+A program belongs to a MIDI channel, so sounds that share a channel share an instrument.
 
 Or record them as a Standard MIDI File (finalized on exit, including Ctrl+C):
 

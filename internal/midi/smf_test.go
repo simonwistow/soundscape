@@ -110,3 +110,13 @@ func readFile(t *testing.T, path string) []byte {
 	}
 	return data
 }
+
+func TestProgramChangeSelectsBankThenProgram(t *testing.T) {
+	w := NewWriter()
+	w.ProgramChange(3, 8, 32)
+
+	// Bank select (CC 0), then, with no delay, the program change.
+	if !bytes.Contains(w.track, []byte{0xB3, 0x00, 8, 0x00, 0xC3, 32}) {
+		t.Fatalf("expected bank select then program change on channel 3, got % X", w.track)
+	}
+}

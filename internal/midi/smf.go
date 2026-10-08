@@ -68,6 +68,15 @@ func (w *Writer) ControlChange(channel, controller, value int) {
 	w.appendEvent(w.delta(), []byte{0xB0 | clampNibble(channel), clampByte(controller), clampByte(value)})
 }
 
+// ProgramChange selects bank and program on channel: a bank select
+// controller change followed by a program change.
+func (w *Writer) ProgramChange(channel, bank, program int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.appendEvent(w.delta(), []byte{0xB0 | clampNibble(channel), 0x00, clampByte(bank)})
+	w.appendEvent(0, []byte{0xC0 | clampNibble(channel), clampByte(program)})
+}
+
 // delta returns the elapsed time since the last event, in MIDI ticks, and
 // resets the reference point. Must be called with mu held.
 func (w *Writer) delta() uint32 {

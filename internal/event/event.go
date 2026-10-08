@@ -74,3 +74,17 @@ func (c Control) Describe() string {
 	return fmt.Sprintf("CONTROL actor=%s channel=%d controller=%d value=%.3f",
 		c.Actor, c.Channel, c.Controller, c.Value)
 }
+
+// Program selects the instrument a channel's notes play with, as a MIDI
+// bank and program change: on a General MIDI synth or SoundFont, program 0
+// is a piano, 32 an acoustic bass, and so on. The engine sends one for each
+// channel a theme sets an instrument on, before that channel's first note.
+type Program struct {
+	Channel int
+	Bank    int // 0-127; most sounds are in bank 0
+	Program int // 0-127
+}
+
+func (p Program) Describe() string {
+	return fmt.Sprintf("PROGRAM channel=%d bank=%d program=%d", p.Channel, p.Bank, p.Program)
+}

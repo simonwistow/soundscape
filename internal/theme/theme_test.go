@@ -323,3 +323,39 @@ func TestEngineWithoutSpreadSendsImmediately(t *testing.T) {
 		t.Fatal("expected events")
 	}
 }
+
+func intp(v int) *int { return &v }
+
+func TestEngineSelectsProgramsBeforeNotesAndAfterReload(t *testing.T) {
+	th := testTheme()
+	th.Sounds[0].Program = intp(11)
+	th.Sounds[1].Program = intp(32)
+	th.Sounds[1].Bank = 8
+
+	out := &recordingOutput{}
+	engine := NewEngineWithSeed(th, out, 1)
+	engine.Process(1000, map[string]float64{"activity": 1})
+	engine.Process(1001, map[string]float64{"activity": 1})
+
+	var programs []event.Program
+	for i, e := range out.events {
+		if p, ok := e.(event.Program); ok {
+			if i >= 2 {
+				t.Fatalf("program change at event %d, after other events", i)
+			}
+			programs = append(programs, p)
+		}
+	}
+	want := []event.Program{{Channel: 0, Program: 11}, {Channel: 1, Bank: 8, Program: 32}}
+	if len(programs) != 2 || programs[0] != want[0] || programs[1] != want[1] {
+		t.Fatalf("programs = %v, want %v once each", programs, want)
+	}
+
+	th.Sounds[0].Program = intp(12)
+	engine.Reload(th)
+	out.events = nil
+	engine.Process(1002, map[string]float64{"activity": 1})
+	if p, ok := out.events[0].(event.Program); !ok || p.Program != 12 {
+		t.Fatalf("first event after reload = %v, want the new program", out.events[0])
+	}
+}

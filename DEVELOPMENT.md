@@ -64,10 +64,13 @@ new theme before real recordings are available — see its package comment.
 
 ## SoundFonts
 
-An SF2 file can contain ordinary pitched instruments as well as sampled material. For
-`note`/`cc`-output sounds the theme selects MIDI notes and velocities. The next useful step is
-adding a SoundFont preset/program field to the theme and allowing different actors to select
-different presets.
+An SF2 file can contain ordinary pitched instruments as well as sampled material, each a preset
+selected by bank and program number. A `note`/`cc`-output sound's `program` (and `bank`, default
+0) picks one: the engine sends an `event.Program` for each channel that has one before its first
+note, and again after a hot reload. Every MIDI backend turns it into a bank select (CC 0) and a
+program change, so it also reaches a live General MIDI synth or a `.mid` file. Programs belong to
+channels, so `theme.Validate` rejects sounds on one channel that ask for different ones.
+`soundscape soundfont-presets file.sf2` lists a SoundFont's presets.
 
 ## Native audio
 

@@ -33,6 +33,9 @@ func main() {
 		case "validate":
 			runValidate(os.Args[2:])
 			return
+		case "soundfont-presets":
+			runSoundFontPresets(os.Args[2:])
+			return
 		case "midi-ports":
 			runMIDIPorts()
 			return
@@ -309,6 +312,23 @@ func runMIDIPorts() {
 	}
 	for _, p := range ports {
 		fmt.Println(p)
+	}
+}
+
+// runSoundFontPresets implements `soundscape soundfont-presets <file.sf2>`:
+// list the instruments a theme's program and bank can pick from it.
+func runSoundFontPresets(args []string) {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: soundscape soundfont-presets <file.sf2>")
+		os.Exit(2)
+	}
+	presets, err := synth.Presets(args[0])
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("bank  program  name")
+	for _, p := range presets {
+		fmt.Printf("%4d  %7d  %s\n", p.Bank, p.Program, p.Name)
 	}
 }
 

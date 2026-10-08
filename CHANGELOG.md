@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `program` (and `bank`) on a note or cc sound picks its instrument, on a SoundFont or any General MIDI synth: `--soundfont`, live MIDI and `--midi-out` all send it as a program change. `soundscape soundfont-presets file.sf2` lists a SoundFont's instruments. The `pentatonic` theme now plays a vibraphone, an acoustic bass and tubular bells.
+
 ## [0.2.0] - 2026-10-08
 
 ### Added

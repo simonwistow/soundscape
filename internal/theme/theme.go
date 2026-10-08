@@ -50,6 +50,11 @@ type Range struct {
 // beat set by how often the source reports. Spread scatters them at random
 // across the time until the next tick (about a second, for most sources)
 // instead.
+//
+// Program (and optionally Bank) picks the instrument a note or cc sound's
+// channel plays with, on a SoundFont or General MIDI synth: 0 is a piano,
+// 32 an acoustic bass, and so on (see `soundscape soundfont-presets`).
+// It's a property of the channel, so sounds sharing a channel must agree.
 type Sound struct {
 	Name        string  `yaml:"name"`
 	Type        string  `yaml:"type"`
@@ -67,6 +72,8 @@ type Sound struct {
 	Pitch       float64 `yaml:"pitch"`
 	PitchJitter *Range  `yaml:"pitch_jitter"`
 	Spread      bool    `yaml:"spread"`
+	Program     *int    `yaml:"program"`
+	Bank        int     `yaml:"bank"`
 }
 
 type Rate struct {
@@ -80,6 +87,10 @@ type Engine struct {
 	output   output.Output
 	rng      *rand.Rand
 	lastTick int64
+
+	// programsSent is whether the theme's instruments have been selected
+	// since it was loaded.
+	programsSent bool
 
 	// after runs f once d has passed; time.AfterFunc, except in tests.
 	after func(d time.Duration, f func())
@@ -140,6 +151,7 @@ func (e *Engine) Reload(t Theme) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.theme = t
+	e.programsSent = false
 }
 
 // Inputs returns the distinct input names a theme's sounds use, in order of
@@ -175,6 +187,11 @@ func (e *Engine) Process(timestamp int64, inputs map[string]float64) {
 	}
 	e.lastTick = timestamp
 
+	if !e.programsSent {
+		e.sendPrograms()
+		e.programsSent = true
+	}
+
 	for _, sound := range e.theme.Sounds {
 		value := metrics.Clamp(inputs[sound.Input], 0, 1)
 
@@ -186,6 +203,20 @@ func (e *Engine) Process(timestamp int64, inputs map[string]float64) {
 		default:
 			fmt.Printf("warning: unknown sound type %q\n", sound.Type)
 		}
+	}
+}
+
+// sendPrograms selects each channel's instrument, for the channels the
+// theme sets one on. Validate makes sure sounds sharing a channel agree, so
+// the first one to set it is enough.
+func (e *Engine) sendPrograms() {
+	done := make(map[int]bool)
+	for _, sound := range e.theme.Sounds {
+		if sound.Program == nil || done[sound.Channel] {
+			continue
+		}
+		done[sound.Channel] = true
+		_ = e.output.Send(event.Program{Channel: sound.Channel, Bank: sound.Bank, Program: *sound.Program})
 	}
 }
 

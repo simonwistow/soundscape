@@ -160,6 +160,18 @@ func (l *LiveOutput) Send(e event.Event) error {
 		l.channels[int(ch)] = true
 		return l.send(0xB0|ch, clampByte(ev.Controller), clampByte(int(ev.Value)))
 
+	case event.Program:
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if l.closed {
+			return nil
+		}
+		ch := clampNibble(ev.Channel)
+		if err := l.send(0xB0|ch, 0x00, clampByte(ev.Bank)); err != nil { // bank select
+			return err
+		}
+		return l.send(0xC0|ch, clampByte(ev.Program))
+
 	default:
 		return fmt.Errorf("midi: unsupported event %T (only note/cc-output sounds can reach MIDI)", e)
 	}

@@ -19,7 +19,8 @@ name: forest-glade
 #   ramps a normalised value into min_value..max_value.
 #
 # output: note | cc (default)
-#   emits a MIDI-style event for the SoundFont backend.
+#   emits a MIDI-style event for a SoundFont or MIDI output; program (and
+#   bank) picks the instrument, as on a General MIDI synth.
 #
 # output: sample | sample_loop
 #   emits an event.Sample for the WAV sample player (internal/sampler).

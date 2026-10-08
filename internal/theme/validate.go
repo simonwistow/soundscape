@@ -24,7 +24,8 @@ func (e ValidationError) Error() string {
 // Validate checks a loaded Theme for the kinds of mistakes that would
 // otherwise only surface as a silent no-op or a confusing runtime error:
 // missing/duplicate names, sounds with no input, inverted
-// ranges, out-of-range MIDI values, unknown behaviour/output kinds, and
+// ranges, out-of-range MIDI values, sounds on one channel asking for
+// different instruments, unknown behaviour/output kinds, and
 // sample_group directories that don't exist or have no .wav files.
 //
 // Whether a theme's inputs are actually provided depends on the mapping
@@ -42,6 +43,8 @@ func Validate(t Theme) []error {
 	if len(t.Sounds) == 0 {
 		errs = append(errs, ValidationError{Msg: "theme defines no sounds"})
 	}
+
+	errs = append(errs, validatePrograms(t)...)
 
 	soundNames := make(map[string]bool)
 	for _, snd := range t.Sounds {
@@ -162,4 +165,50 @@ func validateSampleGroup(label, dir string) []error {
 		return []error{ValidationError{Sound: label, Msg: fmt.Sprintf("sample_group %q has no .wav files", dir)}}
 	}
 	return nil
+}
+
+// validatePrograms checks program and bank values, and that sounds sharing
+// a channel don't ask for different instruments: a program belongs to the
+// channel, so only one of them could get its way.
+func validatePrograms(t Theme) []error {
+	var errs []error
+	type instrument struct{ bank, program int }
+	byChannel := make(map[int]instrument)
+	setBy := make(map[int]string)
+
+	for _, s := range t.Sounds {
+		label := s.Name
+		if label == "" {
+			label = "<unnamed sound>"
+		}
+		if s.Program == nil {
+			if s.Bank != 0 {
+				errs = append(errs, ValidationError{Sound: label, Msg: "bank is set but program isn't"})
+			}
+			continue
+		}
+		if s.Output == "sample" || s.Output == "sample_loop" {
+			errs = append(errs, ValidationError{Sound: label, Msg: "program only applies to note and cc sounds"})
+			continue
+		}
+		if *s.Program < 0 || *s.Program > 127 {
+			errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
+				"invalid MIDI program %d (expected 0-127)", *s.Program)})
+		}
+		if s.Bank < 0 || s.Bank > 127 {
+			errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
+				"invalid MIDI bank %d (expected 0-127)", s.Bank)})
+		}
+
+		want := instrument{s.Bank, *s.Program}
+		if have, ok := byChannel[s.Channel]; ok && have != want {
+			errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
+				"channel %d already plays bank %d program %d for %s; sounds sharing a channel share its instrument",
+				s.Channel, have.bank, have.program, setBy[s.Channel])})
+			continue
+		}
+		byChannel[s.Channel] = want
+		setBy[s.Channel] = label
+	}
+	return errs
 }

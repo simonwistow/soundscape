@@ -155,3 +155,41 @@ func TestValidatePentatonicThemePasses(t *testing.T) {
 		t.Fatalf("expected the pentatonic theme to validate cleanly, got: %v", errs)
 	}
 }
+
+func TestValidatePrograms(t *testing.T) {
+	th := testTheme()
+	th.Sounds[0].Program = intp(128)
+	th.Sounds[1].Bank = 3
+	errs := Validate(th)
+	if !containsMsg(errs, "invalid MIDI program 128") {
+		t.Fatalf("expected an invalid program error, got: %v", errs)
+	}
+	if !containsMsg(errs, "bank is set but program isn't") {
+		t.Fatalf("expected a bank without program error, got: %v", errs)
+	}
+}
+
+func TestValidateCatchesConflictingProgramsOnAChannel(t *testing.T) {
+	th := testTheme()
+	th.Sounds[1].Channel = 0
+	th.Sounds[0].Program = intp(11)
+	th.Sounds[1].Program = intp(32)
+	if errs := Validate(th); !containsMsg(errs, "channel 0 already plays bank 0 program 11 for birds") {
+		t.Fatalf("expected a conflicting program error, got: %v", errs)
+	}
+
+	th.Sounds[1].Program = intp(11)
+	if errs := Validate(th); len(errs) != 0 {
+		t.Fatalf("sounds agreeing on a channel's program should validate, got: %v", errs)
+	}
+}
+
+func TestValidateRejectsProgramOnSamples(t *testing.T) {
+	th := testTheme()
+	th.Sounds[0].Output = "sample"
+	th.Sounds[0].SampleGroup = t.TempDir()
+	th.Sounds[0].Program = intp(0)
+	if errs := Validate(th); !containsMsg(errs, "program only applies to note and cc sounds") {
+		t.Fatalf("expected a program-on-sample error, got: %v", errs)
+	}
+}
