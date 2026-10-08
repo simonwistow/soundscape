@@ -210,3 +210,10 @@ text-only Console backend.
 2. Add richer stochastic actors such as flocks, crowds and weather.
 3. Add MIDI 2.0/OSC output.
 4. Embed themes, mappings and optionally assets into a single distributable binary.
+
+## License
+
+Soundscape is free software, licensed under the GNU General Public License version 3; see
+[LICENSE](LICENSE). The recordings under `themes/*/samples/` are not covered by it: each keeps
+its own license (public domain, CC0 or, for one file, CC BY-SA 3.0), as listed in
+[ATTRIBUTION.md](ATTRIBUTION.md).

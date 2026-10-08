@@ -75,7 +75,7 @@ jobs:
         run: |
           name="soundscape-$GITHUB_REF_NAME-${{ matrix.platform }}"
           mkdir -p "dist/$name"
-          cp soundscape README.md CHANGELOG.md ATTRIBUTION.md "dist/$name/"
+          cp soundscape LICENSE README.md CHANGELOG.md ATTRIBUTION.md "dist/$name/"
           cp -R themes mappings "dist/$name/"
           .github/scripts/smoke.sh ./soundscape "dist/$name"
           tar -C dist -czf "dist/$name.tar.gz" "$name"

@@ -79,7 +79,7 @@ release a new version instead.
 - `soundscape-vX.Y.Z-linux-amd64.tar.gz` and
   `soundscape-vX.Y.Z-darwin-arm64.tar.gz`: the `soundscape` binary, the
   `themes/` (with their samples) and `mappings/` directories, and
-  `README.md`, `CHANGELOG.md` and `ATTRIBUTION.md`. The binary finds themes
+  `LICENSE`, `README.md`, `CHANGELOG.md` and `ATTRIBUTION.md`. The binary finds themes
   and mappings relative to the directory it is run from, so run it from the
   unpacked bundle, or pass `--theme` and `--aliases` paths.
 - `SHA256SUMS` for both.
