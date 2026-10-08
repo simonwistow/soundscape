@@ -37,15 +37,25 @@ sends each one after a random delay of up to `elapsed_seconds`, scattering them 
 until the next tick. That suits a flock of birds or a bass line; a melody can sound better left on
 the beat.
 
+`flock` sounds are the first with state that lasts across ticks: the engine keeps the flocks
+passing over (`Engine.flocks`), timed against `Engine.clock`, the sum of every tick's
+`elapsed_seconds`. Flocks arrive like a probabilistic sound's events, at `rate` per second, each
+with `size` members (scaled by the input, give or take a quarter) and a `pass` time picked at
+random. Every tick, each member of each passing flock draws a Poisson count of calls (`call_rate`
+per second) at random moments before the next tick; a call's gain follows `sin(pi * progress)`
+through the pass and, for samples, its pan sweeps from one side to the other. Members keep their
+own pitch (samples) or note (notes) for the whole pass. A reload keeps flocks whose sound still
+exists, with its new settings, and drops the rest. See `internal/theme/flock.go`.
+
 Randomness is seeded via `theme.NewEngineWithSeed`; `theme.NewEngine` seeds from the current time
 for live variation, and the CLI's `--seed` flag can pin it for reproducible runs.
 
 ## Sound output modes
 
-Each `Sound` has a `type` (the scheduling primitive: `probabilistic` or `continuous`) and an
+Each `Sound` has a `type` (the scheduling primitive: `probabilistic`, `continuous` or `flock`) and an
 `output` (how that primitive is realised):
 
-* `output: note` (default for `probabilistic`) and `output: cc` (default for `continuous`) emit
+* `output: note` (default for `probabilistic` and `flock`) and `output: cc` (default for `continuous`) emit
   MIDI-style `event.Note`/`event.Control` values, for the SoundFont backend (`internal/synth`)
   and the MIDI backends (`internal/midi`: live to a port, or recorded to a file).
 * `output: sample` emits a one-shot `event.Sample`, played by the WAV sample player

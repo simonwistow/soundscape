@@ -66,9 +66,11 @@ func Validate(t Theme) []error {
 			errs = append(errs, validateProbabilistic(label, snd)...)
 		case "continuous":
 			errs = append(errs, validateContinuous(label, snd)...)
+		case "flock":
+			errs = append(errs, validateFlock(label, snd)...)
 		default:
 			errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
-				"unknown behaviour type %q (expected probabilistic or continuous)", snd.Type)})
+				"unknown behaviour type %q (expected probabilistic, continuous or flock)", snd.Type)})
 		}
 	}
 
@@ -84,6 +86,15 @@ func validateProbabilistic(label string, s Sound) []error {
 		errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
 			"invalid rate range: min (%v) > max (%v)", s.Rate.Min, s.Rate.Max)})
 	}
+	errs = append(errs, rejectFlockSettings(label, s, "probabilistic")...)
+	return append(errs, validateCalls(label, s, "probabilistic")...)
+}
+
+// validateCalls checks what probabilistic and flock sounds have in common:
+// each event is a single call, a note or a sample.
+func validateCalls(label string, s Sound, kind string) []error {
+	var errs []error
+
 	if s.Velocity != nil && s.Velocity.Min > s.Velocity.Max {
 		errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
 			"invalid velocity range: min (%v) > max (%v)", s.Velocity.Min, s.Velocity.Max)})
@@ -96,7 +107,7 @@ func validateProbabilistic(label string, s Sound) []error {
 	switch s.Output {
 	case "", "note":
 		if len(s.Notes) == 0 {
-			errs = append(errs, ValidationError{Sound: label, Msg: "note-output probabilistic sound has no notes"})
+			errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf("note-output %s sound has no notes", kind)})
 		}
 		for _, n := range s.Notes {
 			if n < 0 || n > 127 {
@@ -112,10 +123,51 @@ func validateProbabilistic(label string, s Sound) []error {
 		errs = append(errs, validateSampleGroup(label, s.SampleGroup)...)
 	default:
 		errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
-			"unknown output %q for probabilistic sound (expected note or sample)", s.Output)})
+			"unknown output %q for %s sound (expected note or sample)", s.Output, kind)})
 	}
 
 	return errs
+}
+
+func validateFlock(label string, s Sound) []error {
+	var errs []error
+
+	if s.Rate == nil {
+		errs = append(errs, ValidationError{Sound: label, Msg: "flock has no rate (flocks arriving per second)"})
+	} else if s.Rate.Min > s.Rate.Max {
+		errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
+			"invalid rate range: min (%v) > max (%v)", s.Rate.Min, s.Rate.Max)})
+	}
+	if s.Size == nil {
+		errs = append(errs, ValidationError{Sound: label, Msg: "flock has no size (members per flock)"})
+	} else if s.Size.Min < 1 || s.Size.Min > s.Size.Max {
+		errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
+			"invalid size range: min (%v), max (%v) (expected 1 <= min <= max)", s.Size.Min, s.Size.Max)})
+	}
+	if s.Pass == nil {
+		errs = append(errs, ValidationError{Sound: label, Msg: "flock has no pass (seconds it takes to go by)"})
+	} else if s.Pass.Min <= 0 || s.Pass.Min > s.Pass.Max {
+		errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
+			"invalid pass range: min (%v), max (%v) (expected 0 < min <= max)", s.Pass.Min, s.Pass.Max)})
+	}
+	if s.CallRate <= 0 {
+		errs = append(errs, ValidationError{Sound: label, Msg: "flock has no call_rate (calls per member per second)"})
+	}
+	if s.Spread {
+		errs = append(errs, ValidationError{Sound: label, Msg: "spread doesn't apply to flocks, whose calls are always scattered"})
+	}
+
+	return append(errs, validateCalls(label, s, "flock")...)
+}
+
+// rejectFlockSettings flags flock-only settings on other kinds of sound,
+// where they'd be silently ignored.
+func rejectFlockSettings(label string, s Sound, kind string) []error {
+	if s.Size == nil && s.Pass == nil && s.CallRate == 0 {
+		return nil
+	}
+	return []error{ValidationError{Sound: label, Msg: fmt.Sprintf(
+		"size, pass and call_rate only apply to flocks, not %s sounds", kind)}}
 }
 
 func validateContinuous(label string, s Sound) []error {
@@ -124,6 +176,7 @@ func validateContinuous(label string, s Sound) []error {
 	if s.Spread {
 		errs = append(errs, ValidationError{Sound: label, Msg: "spread only applies to probabilistic sounds"})
 	}
+	errs = append(errs, rejectFlockSettings(label, s, "continuous")...)
 
 	switch s.Output {
 	case "", "cc":

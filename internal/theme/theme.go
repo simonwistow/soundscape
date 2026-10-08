@@ -37,8 +37,9 @@ type Range struct {
 }
 
 // Sound describes one behaviour. Type selects the scheduling primitive
-// ("probabilistic" or "continuous"); Output selects how that primitive is
-// realised: "note" (default for probabilistic) and "cc" (default for
+// ("probabilistic", "continuous" or "flock", see flock.go); Output selects
+// how that primitive is realised: "note" (default for probabilistic and
+// flock) and "cc" (default for
 // continuous) emit MIDI-style events for the SoundFont backend, while
 // "sample" and "sample_loop" emit event.Sample values for the WAV sample
 // player. A "sample_loop" sound's ramped value (min_value..max_value) is
@@ -74,6 +75,11 @@ type Sound struct {
 	Spread      bool    `yaml:"spread"`
 	Program     *int    `yaml:"program"`
 	Bank        int     `yaml:"bank"`
+
+	// Flock settings; see flock.go.
+	Size     *Range  `yaml:"size"`
+	Pass     *Range  `yaml:"pass"`
+	CallRate float64 `yaml:"call_rate"`
 }
 
 type Rate struct {
@@ -87,6 +93,11 @@ type Engine struct {
 	output   output.Output
 	rng      *rand.Rand
 	lastTick int64
+
+	// clock is seconds of soundscape time: the sum of every tick's dt,
+	// which is what flocks are timed against.
+	clock  float64
+	flocks []*flock
 
 	// programsSent is whether the theme's instruments have been selected
 	// since it was loaded.
@@ -186,6 +197,7 @@ func (e *Engine) Process(timestamp int64, inputs map[string]float64) {
 		dt = maxTickSeconds
 	}
 	e.lastTick = timestamp
+	e.clock += dt
 
 	if !e.programsSent {
 		e.sendPrograms()
@@ -200,10 +212,13 @@ func (e *Engine) Process(timestamp int64, inputs map[string]float64) {
 			e.processProbabilistic(sound, value, dt)
 		case "continuous":
 			e.processContinuous(sound, value)
+		case "flock":
+			e.launchFlocks(sound, value, dt)
 		default:
 			fmt.Printf("warning: unknown sound type %q\n", sound.Type)
 		}
 	}
+	e.advanceFlocks(inputs, dt)
 }
 
 // sendPrograms selects each channel's instrument, for the channels the

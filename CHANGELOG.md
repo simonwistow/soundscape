@@ -9,6 +9,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `program` (and `bank`) on a note or cc sound picks its instrument, on a SoundFont or any General MIDI synth: `--soundfont`, live MIDI and `--midi-out` all send it as a program change. `soundscape soundfont-presets file.sf2` lists a SoundFont's instruments. The `pentatonic` theme now plays a vibraphone, an acoustic bass and tubular bells.
+- `type: flock` sounds send groups of callers over: flocks arrive at `rate` per second, with `size` members that call `call_rate` times a second for the `pass` seconds a flock takes to go by. Each flock swells in, peaks overhead and fades away as it sweeps across the stereo field, and its members keep their own voices. The forest theme has flocks of starlings on `activity`.
 
 ## [0.2.0] - 2026-10-08
 

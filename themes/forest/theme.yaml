@@ -4,7 +4,7 @@ name: forest-glade
 # abstract 0..1 value. Which data source feeds an input, and how it's
 # scaled, is up to the mapping the theme is played with (see mappings/).
 # This theme uses the conventional inputs:
-#   activity -> birdsong
+#   activity -> birdsong, and flocks of starlings passing over
 #   flow     -> the river, gentle to rushing, plus splashes
 #   quirks   -> a woodpecker
 #
@@ -17,6 +17,13 @@ name: forest-glade
 #
 # type: continuous
 #   ramps a normalised value into min_value..max_value.
+#
+# type: flock
+#   a group that arrives together, passes over and leaves: rate flocks
+#   arrive per second, each with size members (bigger as its input rises)
+#   that call call_rate times a second for the pass seconds it takes to go
+#   by. A flock swells in, peaks overhead and fades away as it sweeps from
+#   one side to the other, and each member keeps its own pitch throughout.
 #
 # output: note | cc (default)
 #   emits a MIDI-style event for a SoundFont or MIDI output; program (and
@@ -48,6 +55,30 @@ sounds:
     pitch_jitter:
       min: 0.9
       max: 1.15
+
+  # The same birds, pitched up, in flocks.
+  - name: starlings
+    type: flock
+    output: sample
+    input: activity
+    rate:
+      min: 0.02
+      max: 0.15
+    size:
+      min: 3
+      max: 12
+    pass:
+      min: 4
+      max: 8
+    call_rate: 2
+    velocity:
+      min: 0.5
+      max: 0.9
+    duration_ms: 180
+    sample_group: samples/birds
+    pitch_jitter:
+      min: 1.1
+      max: 1.5
 
   # The river is built from two looping layers with opposing gain ramps, so
   # rising flow crossfades from a gentle trickle to a rushing torrent
