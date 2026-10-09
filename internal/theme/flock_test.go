@@ -175,7 +175,7 @@ func TestValidateFlock(t *testing.T) {
 	th.Sounds[0].CallRate = 0
 	th.Sounds[0].Spread = true
 	errs := Validate(th)
-	for _, want := range []string{"invalid size range", "flock has no pass", "flock has no call_rate", "spread doesn't apply to flocks"} {
+	for _, want := range []string{"invalid size range", "flock has no pass", "flock has no call_rate", "spread only applies to probabilistic sounds"} {
 		if !containsMsg(errs, want) {
 			t.Errorf("expected %q, got: %v", want, errs)
 		}
@@ -183,7 +183,7 @@ func TestValidateFlock(t *testing.T) {
 
 	th = testTheme()
 	th.Sounds[0].CallRate = 2
-	if errs := Validate(th); !containsMsg(errs, "only apply to flocks") {
+	if errs := Validate(th); !containsMsg(errs, "call_rate only applies to flock and crowd sounds") {
 		t.Fatalf("expected call_rate on a probabilistic sound to be rejected, got: %v", errs)
 	}
 }

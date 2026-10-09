@@ -109,9 +109,10 @@ An input the mapping doesn't provide reads as 0 (with a warning at startup).
 * In a mapping, `smoothing` is a time constant in seconds, and `normalise` maps the raw value
   logarithmically into 0..1.
 * In a theme, `type: probabilistic` turns an input into a Poisson-scheduled event rate,
-  `type: continuous` ramps it into `min_value..max_value`, and `type: flock` sends groups of
+  `type: continuous` ramps it into `min_value..max_value`, `type: flock` sends groups of
   callers over, which swell in, peak overhead and fade away as they cross from one side to the
-  other.
+  other, and `type: crowd` gathers people who come and go with the input, chat, and now and then
+  all react at once.
 * `output` selects how that's realised: `note`/`cc` (MIDI, played live, through a SoundFont, or
   recorded to a file) or
   `sample`/`sample_loop` (WAV playback, via the sample player). See DEVELOPMENT.md for the full
@@ -253,7 +254,7 @@ text-only Console backend.
 
 ## Next steps
 
-1. Add more stochastic actors, such as crowds and weather, alongside flocks.
+1. Add more stochastic actors, such as weather, alongside flocks and crowds.
 2. Add MIDI 2.0/OSC output.
 3. Embed themes, mappings and optionally assets into a single distributable binary.
 

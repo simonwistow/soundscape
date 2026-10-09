@@ -2,7 +2,8 @@ name: farmers-market
 
 # The same conventional inputs as the forest theme, reinterpreted as a
 # farmers market (see mappings/ for what feeds them):
-#   activity -> people / conversations
+#   activity -> people / conversations: shoppers come and go, chat, and
+#               now and then all react at once
 #   flow     -> crowd / bustle level
 #   trouble  -> dropped bottles / other mishaps
 
@@ -29,14 +30,19 @@ sounds:
     min_value: 0
     max_value: 1
 
-  - name: chatter
-    type: probabilistic
+  # A crowd of shoppers who drift in and out with activity, each with their
+  # own voice and place, and who now and then all react at once.
+  - name: shoppers
+    type: crowd
     output: sample
-    spread: true
     input: activity
+    size:
+      min: 3
+      max: 25
+    call_rate: 0.15
     rate:
-      min: 0.05
-      max: 3
+      min: 0
+      max: 0.03
     velocity:
       min: 0.4
       max: 0.9

@@ -37,9 +37,9 @@ type Range struct {
 }
 
 // Sound describes one behaviour. Type selects the scheduling primitive
-// ("probabilistic", "continuous" or "flock", see flock.go); Output selects
-// how that primitive is realised: "note" (default for probabilistic and
-// flock) and "cc" (default for
+// ("probabilistic", "continuous", "flock" or "crowd", see flock.go and
+// crowd.go); Output selects how that primitive is realised: "note"
+// (default for probabilistic, flock and crowd) and "cc" (default for
 // continuous) emit MIDI-style events for the SoundFont backend, while
 // "sample" and "sample_loop" emit event.Sample values for the WAV sample
 // player. A "sample_loop" sound's ramped value (min_value..max_value) is
@@ -76,7 +76,7 @@ type Sound struct {
 	Program     *int    `yaml:"program"`
 	Bank        int     `yaml:"bank"`
 
-	// Flock settings; see flock.go.
+	// Flock and crowd settings; see flock.go and crowd.go.
 	Size     *Range  `yaml:"size"`
 	Pass     *Range  `yaml:"pass"`
 	CallRate float64 `yaml:"call_rate"`
@@ -98,6 +98,7 @@ type Engine struct {
 	// which is what flocks are timed against.
 	clock  float64
 	flocks []*flock
+	crowds map[string]*crowd // by sound name
 
 	// programsSent is whether the theme's instruments have been selected
 	// since it was loaded.
@@ -151,6 +152,7 @@ func NewEngineWithSeed(t Theme, out output.Output, seed int64) *Engine {
 		theme:  t,
 		output: out,
 		rng:    rand.New(rand.NewSource(seed)),
+		crowds: make(map[string]*crowd),
 		after:  func(d time.Duration, f func()) { time.AfterFunc(d, f) },
 	}
 }
@@ -163,6 +165,7 @@ func (e *Engine) Reload(t Theme) {
 	defer e.mu.Unlock()
 	e.theme = t
 	e.programsSent = false
+	e.forgetCrowds()
 }
 
 // Inputs returns the distinct input names a theme's sounds use, in order of
@@ -214,6 +217,8 @@ func (e *Engine) Process(timestamp int64, inputs map[string]float64) {
 			e.processContinuous(sound, value)
 		case "flock":
 			e.launchFlocks(sound, value, dt)
+		case "crowd":
+			e.processCrowd(sound, value, dt)
 		default:
 			fmt.Printf("warning: unknown sound type %q\n", sound.Type)
 		}

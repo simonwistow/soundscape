@@ -47,15 +47,22 @@ through the pass and, for samples, its pan sweeps from one side to the other. Me
 own pitch (samples) or note (notes) for the whole pass. A reload keeps flocks whose sound still
 exists, with its new settings, and drops the rest. See `internal/theme/flock.go`.
 
+`crowd` sounds keep a population per sound (`Engine.crowds`). Each tick, every missing person
+arrives, and every surplus person leaves, with probability `1 - exp(-dt / 5s)`, so the crowd's
+size follows `size` (scaled by the input) with a few seconds' lag. Each person has a fixed voice,
+pan and distance (gain), and calls at `call_rate`. An optional `rate` gives outbursts: everyone
+calls one to three times within two seconds, bunched towards the start, at the top of the
+velocity range. See `internal/theme/crowd.go`.
+
 Randomness is seeded via `theme.NewEngineWithSeed`; `theme.NewEngine` seeds from the current time
 for live variation, and the CLI's `--seed` flag can pin it for reproducible runs.
 
 ## Sound output modes
 
-Each `Sound` has a `type` (the scheduling primitive: `probabilistic`, `continuous` or `flock`) and an
+Each `Sound` has a `type` (the scheduling primitive: `probabilistic`, `continuous`, `flock` or `crowd`) and an
 `output` (how that primitive is realised):
 
-* `output: note` (default for `probabilistic` and `flock`) and `output: cc` (default for `continuous`) emit
+* `output: note` (default for `probabilistic`, `flock` and `crowd`) and `output: cc` (default for `continuous`) emit
   MIDI-style `event.Note`/`event.Control` values, for the SoundFont backend (`internal/synth`)
   and the MIDI backends (`internal/midi`: live to a port, or recorded to a file).
 * `output: sample` emits a one-shot `event.Sample`, played by the WAV sample player

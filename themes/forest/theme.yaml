@@ -25,6 +25,12 @@ name: forest-glade
 #   by. A flock swells in, peaks overhead and fades away as it sweeps from
 #   one side to the other, and each member keeps its own pitch throughout.
 #
+# type: crowd
+#   people who come and go: size of them are there (following the input
+#   over a few seconds), each with their own voice, place and distance,
+#   calling call_rate times a second. An optional rate gives outbursts a
+#   second, when everyone calls at once. See themes/market/theme.yaml.
+#
 # output: note | cc (default)
 #   emits a MIDI-style event for a SoundFont or MIDI output; program (and
 #   bank) picks the instrument, as on a General MIDI synth.
