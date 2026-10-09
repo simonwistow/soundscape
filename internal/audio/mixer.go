@@ -41,6 +41,8 @@ type Mixer struct {
 	sampleRate int
 	sources    []Source
 	sinks      []Sink
+	active     []Sink // the sinks that haven't failed
+	buf        []float32
 
 	started   bool
 	stop      chan struct{}
@@ -69,8 +71,6 @@ func (m *Mixer) Start() {
 func (m *Mixer) run() {
 	defer close(m.done)
 
-	active := append([]Sink(nil), m.sinks...)
-	buf := make([]float32, BlockFrames*2)
 	start := time.Now()
 	var rendered int64
 
@@ -81,31 +81,10 @@ func (m *Mixer) run() {
 		default:
 		}
 
-		for i := range buf {
-			buf[i] = 0
-		}
-		for _, s := range m.sources {
-			s.Render(buf)
-		}
-		for i, v := range buf {
-			buf[i] = min(max(v, -1), 1)
-		}
-
-		// A sink that fails (a full disk, say) is dropped, and the rest
-		// carry on: a broken recording shouldn't silence the speakers.
-		live := active[:0]
-		for _, s := range active {
-			if err := s.Write(buf); err != nil {
-				log.Printf("audio: %v (stopped writing to it)", err)
-				m.err = errors.Join(m.err, err)
-				continue
-			}
-			live = append(live, s)
-		}
-		active = live
+		m.Step()
 
 		rendered += BlockFrames
-		if !paced(active) {
+		if !paced(m.active) {
 			due := start.Add(time.Duration(rendered) * time.Second / time.Duration(m.sampleRate))
 			select {
 			case <-m.stop:
@@ -123,6 +102,40 @@ func paced(sinks []Sink) bool {
 		}
 	}
 	return false
+}
+
+// Step mixes one block, BlockFrames long, and hands it to the sinks. Start
+// calls it in a loop, in time; a render calls it directly, as fast as it
+// likes, instead of calling Start.
+func (m *Mixer) Step() {
+	if m.buf == nil {
+		m.buf = make([]float32, BlockFrames*2)
+		m.active = append([]Sink(nil), m.sinks...)
+	}
+	buf := m.buf
+
+	for i := range buf {
+		buf[i] = 0
+	}
+	for _, s := range m.sources {
+		s.Render(buf)
+	}
+	for i, v := range buf {
+		buf[i] = min(max(v, -1), 1)
+	}
+
+	// A sink that fails (a full disk, say) is dropped, and the rest carry
+	// on: a broken recording shouldn't silence the speakers.
+	live := m.active[:0]
+	for _, s := range m.active {
+		if err := s.Write(buf); err != nil {
+			log.Printf("audio: %v (stopped writing to it)", err)
+			m.err = errors.Join(m.err, err)
+			continue
+		}
+		live = append(live, s)
+	}
+	m.active = live
 }
 
 // Close stops the mix and then closes every sink, so a file sink gets to

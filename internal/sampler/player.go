@@ -5,8 +5,10 @@
 package sampler
 
 import (
+	"cmp"
 	"fmt"
 	"math/rand"
+	"slices"
 	"sync"
 	"time"
 
@@ -25,18 +27,24 @@ type Player struct {
 	groups     map[string]*Group
 	oneShots   []*voice
 	loops      map[string]*voice
+	loopOrder  []*voice // scratch space for Render
 	rng        *rand.Rand
 	nextID     uint64
 }
 
 // NewPlayer creates a sample player at the given sample rate (44100 is a
 // reasonable default). It's an audio.Source: add it to a mixer to hear it.
-func NewPlayer(sampleRate int) *Player {
+// seed picks which variant of a sample plays, so a seeded run sounds the
+// same every time; 0 seeds from the time.
+func NewPlayer(sampleRate int, seed int64) *Player {
+	if seed == 0 {
+		seed = time.Now().UnixNano()
+	}
 	return &Player{
 		sampleRate: sampleRate,
 		groups:     make(map[string]*Group),
 		loops:      make(map[string]*voice),
-		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
+		rng:        rand.New(rand.NewSource(seed)),
 	}
 }
 
@@ -135,7 +143,15 @@ func (p *Player) Render(buf []float32) {
 	}
 	p.oneShots = live
 
+	// In a fixed order (oldest first), not the map's, so the same events
+	// mix to exactly the same samples every time: a seeded render is
+	// repeatable to the bit.
+	p.loopOrder = p.loopOrder[:0]
 	for _, v := range p.loops {
+		p.loopOrder = append(p.loopOrder, v)
+	}
+	slices.SortFunc(p.loopOrder, func(a, b *voice) int { return cmp.Compare(a.id, b.id) })
+	for _, v := range p.loopOrder {
 		v.render(buf, frames, p.sampleRate)
 	}
 }

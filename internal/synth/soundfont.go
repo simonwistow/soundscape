@@ -9,6 +9,7 @@ import (
 
 	"github.com/sinshu/go-meltysynth/meltysynth"
 
+	"github.com/simonwistow/soundscape/internal/clock"
 	"github.com/simonwistow/soundscape/internal/event"
 )
 
@@ -17,12 +18,13 @@ import (
 type SoundFontOutput struct {
 	mu          sync.Mutex
 	synth       *meltysynth.Synthesizer
+	clock       clock.Clock
 	left, right []float32
 }
 
 // NewSoundFontOutput loads the SoundFont at path into a synth running at
-// sampleRate.
-func NewSoundFontOutput(path string, sampleRate int) (*SoundFontOutput, error) {
+// sampleRate, which times its notes by clk.
+func NewSoundFontOutput(path string, sampleRate int, clk clock.Clock) (*SoundFontOutput, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -40,7 +42,7 @@ func NewSoundFontOutput(path string, sampleRate int) (*SoundFontOutput, error) {
 		return nil, err
 	}
 
-	return &SoundFontOutput{synth: s}, nil
+	return &SoundFontOutput{synth: s, clock: clk}, nil
 }
 
 // Render adds the synth's next len(buf)/2 frames into buf, as interleaved
@@ -71,12 +73,11 @@ func (s *SoundFontOutput) Send(e event.Event) error {
 	case event.Note:
 		s.synth.NoteOn(int32(v.Channel), int32(v.Pitch), int32(v.Velocity))
 
-		go func(channel, pitch int, duration time.Duration) {
-			time.Sleep(duration)
+		s.clock.AfterFunc(time.Duration(v.DurationMs)*time.Millisecond, func() {
 			s.mu.Lock()
-			s.synth.NoteOff(int32(channel), int32(pitch))
+			s.synth.NoteOff(int32(v.Channel), int32(v.Pitch))
 			s.mu.Unlock()
-		}(v.Channel, v.Pitch, time.Duration(v.DurationMs)*time.Millisecond)
+		})
 
 	case event.Control:
 		// SoundFont synths expose MIDI controllers. This lets a theme use

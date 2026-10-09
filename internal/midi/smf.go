@@ -15,6 +15,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/simonwistow/soundscape/internal/clock"
 )
 
 const (
@@ -29,16 +31,18 @@ func ticksPerSecond() float64 {
 }
 
 // Writer accumulates MIDI channel events (with delta-times derived from
-// wall-clock time as they're appended) into a single-track Standard MIDI
-// File.
+// the time on its clock as they're appended) into a single-track Standard
+// MIDI File.
 type Writer struct {
 	mu        sync.Mutex
 	track     []byte
-	lastEvent time.Time
+	clock     clock.Clock
+	start     time.Time
+	lastTicks uint32
 }
 
-func NewWriter() *Writer {
-	w := &Writer{lastEvent: time.Now()}
+func NewWriter(clk clock.Clock) *Writer {
+	w := &Writer{clock: clk, start: clk.Now()}
 	// A tempo meta event up front so a DAW's transport matches our
 	// wall-clock-derived tick math.
 	w.appendEvent(0, []byte{
@@ -77,16 +81,17 @@ func (w *Writer) ProgramChange(channel, bank, program int) {
 	w.appendEvent(0, []byte{0xC0 | clampNibble(channel), clampByte(program)})
 }
 
-// delta returns the elapsed time since the last event, in MIDI ticks, and
-// resets the reference point. Must be called with mu held.
+// delta returns the time since the last event, in MIDI ticks. It counts
+// from the start, so rounding to whole ticks doesn't add up over a long
+// session. Must be called with mu held.
 func (w *Writer) delta() uint32 {
-	now := time.Now()
-	elapsed := now.Sub(w.lastEvent).Seconds()
-	w.lastEvent = now
-	if elapsed < 0 {
-		elapsed = 0
+	ticks := uint32(max(w.clock.Now().Sub(w.start).Seconds(), 0) * ticksPerSecond())
+	if ticks < w.lastTicks {
+		return 0
 	}
-	return uint32(elapsed * ticksPerSecond())
+	d := ticks - w.lastTicks
+	w.lastTicks = ticks
+	return d
 }
 
 // appendEvent must be called with mu held.

@@ -163,6 +163,15 @@ LAME.
 A recording holds what the speakers play: sample sounds, and note sounds with `--soundfont`. For
 the notes themselves, use `midi-file:`.
 
+`--duration` stops a run after that much soundscape. When the source can be replayed (for now,
+`simulate`) and every output is offline (`file`, `midi-file`, `console`), it doesn't wait for the
+clock: it renders as fast as it can, about a hundred times real time for the forest.
+
+    go run ./cmd/soundscape --theme themes/forest/theme.yaml --duration 1h --seed 42 --output file:forest.mp3
+
+With `--seed`, a render comes out the same, to the bit, every time. With a live source (Fastly,
+Prometheus, Wikipedia) or a live output, `--duration` runs in real time and then stops.
+
 ## MIDI
 
 A theme's `note`/`cc`-output sounds can be sent, live, to anything that plays MIDI: a hardware
@@ -251,6 +260,10 @@ Pin the random seed for a reproducible run:
 
     go run ./cmd/soundscape --seed 42
 
+Stop after ten minutes:
+
+    go run ./cmd/soundscape --duration 10m
+
 Log the raw metrics as they arrive:
 
     go run ./cmd/soundscape --aliases wikipedia --verbose
@@ -307,6 +320,8 @@ real recordings are ready:
     internal/output      sound output abstraction (incl. Multi fan-out)
     internal/audio       the mixer: sources (sampler, synth) into sinks (speakers, files)
     internal/record      WAV and MP3 file sinks
+    internal/clock       real and virtual clocks, for live runs and fast renders
+    internal/render      faster-than-real-time rendering on a virtual clock
     internal/synth       SoundFont output backend
     internal/sampler     WAV sample-player output backend
     internal/midi        MIDI output backends: live (RtMidi) and Standard MIDI File

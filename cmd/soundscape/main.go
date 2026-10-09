@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/simonwistow/soundscape/internal/audio"
+	"github.com/simonwistow/soundscape/internal/clock"
 	"github.com/simonwistow/soundscape/internal/fastly"
 	"github.com/simonwistow/soundscape/internal/mapping"
 	"github.com/simonwistow/soundscape/internal/midi"
@@ -21,6 +23,7 @@ import (
 	"github.com/simonwistow/soundscape/internal/output"
 	"github.com/simonwistow/soundscape/internal/prometheus"
 	"github.com/simonwistow/soundscape/internal/record"
+	"github.com/simonwistow/soundscape/internal/render"
 	"github.com/simonwistow/soundscape/internal/sampler"
 	"github.com/simonwistow/soundscape/internal/source"
 	"github.com/simonwistow/soundscape/internal/synth"
@@ -66,6 +69,7 @@ func main() {
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
 		watch     = flag.Bool("watch", true, "reload the theme and mapping files automatically when they change")
+		duration  = flag.Duration("duration", 0, "stop after this much soundscape (e.g. 10m; 0 = run until stopped). With a source that can be replayed (simulate) and only offline outputs (file, midi-file, console), it renders as fast as it can instead of in real time")
 	)
 	var outputs stringList
 	flag.Var(&outputs, "output", "where the soundscape goes; repeat for several:"+output.Help())
@@ -119,11 +123,45 @@ func main() {
 	}
 	warnUnbound(m, th)
 
-	out, player, closeOutput, err := buildOutput(th, specs, *soundFont)
+	// Render faster than real time when there's an end, the source can be
+	// stepped, and nothing has to keep pace with the world. Everything
+	// then times itself by a virtual clock that the render moves along.
+	stepper, steppable := src.(source.Stepper)
+	fast := *duration > 0 && steppable && offline(specs)
+	var clk clock.Clock = clock.Real{}
+	var virtual *clock.Virtual
+	if fast {
+		virtual = clock.NewVirtual(time.Now())
+		clk = virtual
+	}
+
+	out, player, mixer, closeOutput, err := buildOutput(th, specs, outputOptions{
+		soundFont: *soundFont,
+		clock:     clk,
+		seed:      *seed,
+		start:     !fast,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer closeOutput()
+
+	var engine *theme.Engine
+	if *seed != 0 {
+		engine = theme.NewEngineWithSeed(th, out, *seed)
+	} else {
+		engine = theme.NewEngine(th, out)
+	}
+	engine.UseClock(clk)
+	conditioner := mapping.NewConditioner(m)
+	process := func(ts int64, raw map[string]float64) {
+		engine.Process(ts, conditioner.Apply(raw))
+	}
+
+	if fast {
+		renderFast(stepper, process, virtual, mixer, *duration)
+		return
+	}
 
 	// A theme run typically loops forever, so make sure Ctrl+C/SIGTERM
 	// still finalizes output that needs an explicit close (notably the
@@ -137,14 +175,6 @@ func main() {
 		os.Exit(0)
 	}()
 
-	var engine *theme.Engine
-	if *seed != 0 {
-		engine = theme.NewEngineWithSeed(th, out, *seed)
-	} else {
-		engine = theme.NewEngine(th, out)
-	}
-	conditioner := mapping.NewConditioner(m)
-
 	if *watch {
 		r := &reloader{
 			themePath: *themePath, mappingPath: mappingPath, sourceOverride: *sourceName,
@@ -155,12 +185,72 @@ func main() {
 		go watchFile(mappingPath, r.reloadMapping)
 	}
 
-	err = src.Run(context.Background(), func(ts int64, raw map[string]float64) {
-		engine.Process(ts, conditioner.Apply(raw))
-	})
-	if err != nil {
+	ctx := context.Background()
+	if *duration > 0 {
+		log.Printf("running for %v, in real time", *duration)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *duration)
+		defer cancel()
+	}
+	err = src.Run(ctx, process)
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		log.Fatal(err)
 	}
+}
+
+// offline reports whether every output can take events as fast as they
+// come, rather than as they'd happen.
+func offline(specs []output.Spec) bool {
+	for _, spec := range specs {
+		switch spec.Kind {
+		case "file", "midi-file", "console":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// renderFast renders duration of soundscape as fast as it can, logging its
+// progress, until it's done or Ctrl+C stops it early. The caller then
+// finishes the outputs.
+func renderFast(src source.Stepper, process func(int64, map[string]float64), clk *clock.Virtual, mixer *audio.Mixer, duration time.Duration) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	log.Printf("rendering %v, faster than real time", duration)
+	began := time.Now()
+	lastLog := began
+	rendered := render.Run(ctx, render.Config{
+		Source:     src,
+		Process:    process,
+		Clock:      clk,
+		Mixer:      mixer,
+		SampleRate: sampleRate,
+		Duration:   duration,
+		Progress: func(done time.Duration) {
+			if time.Since(lastLog) >= 5*time.Second {
+				lastLog = time.Now()
+				log.Printf("rendered %v of %v", done.Round(time.Second), duration)
+			}
+		},
+	})
+
+	took := time.Since(began)
+	speed := ""
+	if took > 0 {
+		speed = fmt.Sprintf(", %.0fx real time", rendered.Seconds()/took.Seconds())
+	}
+	if ctx.Err() != nil {
+		log.Printf("stopped after rendering %v of %v", rendered.Round(time.Second), duration)
+		return
+	}
+	if took < time.Second {
+		took = took.Round(time.Millisecond)
+	} else {
+		took = took.Round(100 * time.Millisecond)
+	}
+	log.Printf("rendered %v in %v%s", rendered.Round(time.Second), took, speed)
 }
 
 // version is set by release builds with -ldflags "-X main.version=v1.2.3".
@@ -219,7 +309,7 @@ type sourceConfig struct {
 func buildSource(m mapping.Mapping, cfg sourceConfig) (source.Source, error) {
 	switch m.Source {
 	case "simulate":
-		return source.Simulation{}, nil
+		return &source.Simulation{}, nil
 
 	case "fastly":
 		if cfg.serviceID == "" || cfg.token == "" {
@@ -371,23 +461,35 @@ type stringList []string
 func (l *stringList) String() string     { return strings.Join(*l, " ") }
 func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
 
+type outputOptions struct {
+	soundFont string
+	// clock times the outputs' notes: the wall clock, or a render's.
+	clock clock.Clock
+	seed  int64
+	// start the mixer in time; a render steps it instead.
+	start bool
+}
+
 // buildOutput starts the outputs the --output specs ask for. Speakers and
 // files get one mix of the sample player, when the theme has samples, and
-// the SoundFont synth, when one is given. The other kinds take events directly.
+// the SoundFont synth, when one is given; that mixer is returned too, nil if
+// there isn't one. The other kinds take events directly.
 // With nothing that takes events (a note-only theme played to the speakers
 // with no SoundFont, say) it falls back to printing them, so a theme can
 // still be exercised with no audio at all.
-func buildOutput(th theme.Theme, specs []output.Spec, soundFont string) (output.Output, *sampler.Player, func(), error) {
+func buildOutput(th theme.Theme, specs []output.Spec, opts outputOptions) (output.Output, *sampler.Player, *audio.Mixer, func(), error) {
 	var outs []output.Output
 	var closers []func()
 	var player *sampler.Player
+	var mixer *audio.Mixer
+	soundFont := opts.soundFont
 
 	// Close whatever was already started if a later output fails.
-	fail := func(err error) (output.Output, *sampler.Player, func(), error) {
+	fail := func(err error) (output.Output, *sampler.Player, *audio.Mixer, func(), error) {
 		for _, c := range closers {
 			c()
 		}
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	var audioSpecs []output.Spec
@@ -407,7 +509,7 @@ func buildOutput(th theme.Theme, specs []output.Spec, soundFont string) (output.
 
 		case "midi-file":
 			path := spec.Target
-			m := midi.NewVirtualOutput(path)
+			m := midi.NewVirtualOutput(path, opts.clock)
 			outs = append(outs, m)
 			closers = append(closers, func() {
 				if err := m.Close(); err != nil {
@@ -467,10 +569,10 @@ func buildOutput(th theme.Theme, specs []output.Spec, soundFont string) (output.
 		}
 	}
 	if len(audioSpecs) > 0 && (len(groups) > 0 || soundFont != "") {
-		mixer := audio.NewMixer(sampleRate)
+		mixer = audio.NewMixer(sampleRate)
 
 		if len(groups) > 0 {
-			p := sampler.NewPlayer(sampleRate)
+			p := sampler.NewPlayer(sampleRate, opts.seed)
 			for _, dir := range groups {
 				if err := p.LoadGroup(dir, dir); err != nil {
 					return fail(fmt.Errorf("loading sample group %s: %w", dir, err))
@@ -482,7 +584,7 @@ func buildOutput(th theme.Theme, specs []output.Spec, soundFont string) (output.
 		}
 
 		if soundFont != "" {
-			sf, err := synth.NewSoundFontOutput(soundFont, sampleRate)
+			sf, err := synth.NewSoundFontOutput(soundFont, sampleRate, opts.clock)
 			if err != nil {
 				return fail(fmt.Errorf("starting SoundFont output: %w", err))
 			}
@@ -516,7 +618,9 @@ func buildOutput(th theme.Theme, specs []output.Spec, soundFont string) (output.
 			mixer.AddSink(sink)
 		}
 
-		mixer.Start()
+		if opts.start {
+			mixer.Start()
+		}
 		closers = append(closers, func() {
 			if err := mixer.Close(); err != nil {
 				log.Printf("audio: %v", err)
@@ -541,9 +645,9 @@ func buildOutput(th theme.Theme, specs []output.Spec, soundFont string) (output.
 	}
 
 	if len(outs) == 1 {
-		return outs[0], player, closeAll, nil
+		return outs[0], player, mixer, closeAll, nil
 	}
-	return output.NewMulti(outs...), player, closeAll, nil
+	return output.NewMulti(outs...), player, mixer, closeAll, nil
 }
 
 // watchFile polls path once a second and calls apply when it changes.

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/simonwistow/soundscape/internal/clock"
 	"github.com/simonwistow/soundscape/internal/event"
 	"github.com/simonwistow/soundscape/internal/metrics"
 	"github.com/simonwistow/soundscape/internal/output"
@@ -161,6 +162,15 @@ func NewEngineWithSeed(t Theme, out output.Output, seed int64) *Engine {
 		weather: make(map[string]*weatherState),
 		after:   func(d time.Duration, f func()) { time.AfterFunc(d, f) },
 	}
+}
+
+// UseClock makes the engine time its delayed events (spread, flocks,
+// crowds) by c, such as a virtual clock when rendering faster than real
+// time. The default is the wall clock.
+func (e *Engine) UseClock(c clock.Clock) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.after = c.AfterFunc
 }
 
 // Reload swaps in a new theme definition (e.g. for hot-reloading an edited

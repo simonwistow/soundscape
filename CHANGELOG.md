@@ -14,6 +14,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A theme's `weather` makes an input of its own from one of the mapping's: it builds up towards that input's level over `build` seconds, takes `clear` seconds to die away, and `gusts` around its level, so a storm has a slow life of its own rather than following the telemetry tick by tick. The forest theme has a storm on `trouble`, with light and heavy rain and thunder.
 
 - Recording. `--output file:forest.mp3` (or `.wav`) records the soundscape as it plays: with `--output speakers` as well to hear it, or silently, in real time, without. MP3 is 256 kbps unless `bitrate` says otherwise (`file:forest.mp3,bitrate=192`), encoded in pure Go, so the binary still needs nothing else installed.
+- `--duration 10m` stops a run after that much soundscape. With the `simulate` source and only offline outputs (`file`, `midi-file`, `console`), it renders as fast as it can instead of in real time: an hour of the forest to MP3 takes well under a minute. With `--seed`, a render is the same every time, to the bit.
 - OSC output. `--output osc:host:port` sends every event as an OSC message over UDP, addressed by the sound that made it (e.g. `/soundscape/birds/sample`, with its group, pitch, gain, pan and duration), for SuperCollider, Max, Pure Data and the like. Its `prefix` option changes `/soundscape` (`--output osc:localhost:57120,prefix=/forest`). `examples/osc/supercollider.scd` plays a theme's samples in SuperCollider from them.
 
 ### Changed
@@ -24,6 +25,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - The sample player and SoundFont synth no longer drift behind: they rendered audio faster than it was played, so the backlog grew by most of a second every second (sounds lagged further behind the telemetry the longer it ran, and memory grew with it). The audio device now paces them, and a sound is heard about a tenth of a second after it happens (it was half a second at best).
+- A MIDI file no longer drifts out of time over a long session: each event's time was rounded down to a whole MIDI tick, and the errors added up.
 - A theme with both samples and note sounds can now play them together through `--soundfont`; it used to stop with "oto: context is already created". The sample player and the synth now share one mix.
 
 ## [0.2.0] - 2026-10-08

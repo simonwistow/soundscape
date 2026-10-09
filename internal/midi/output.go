@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/simonwistow/soundscape/internal/clock"
 	"github.com/simonwistow/soundscape/internal/event"
 )
 
@@ -12,21 +13,22 @@ import (
 // Standard MIDI File at path. LiveOutput is the real-time equivalent.
 type VirtualOutput struct {
 	writer *Writer
+	clock  clock.Clock
 	path   string
 }
 
-func NewVirtualOutput(path string) *VirtualOutput {
-	return &VirtualOutput{writer: NewWriter(), path: path}
+// NewVirtualOutput records to path, timing events by clk.
+func NewVirtualOutput(path string, clk clock.Clock) *VirtualOutput {
+	return &VirtualOutput{writer: NewWriter(clk), clock: clk, path: path}
 }
 
 func (v *VirtualOutput) Send(e event.Event) error {
 	switch ev := e.(type) {
 	case event.Note:
 		v.writer.NoteOn(ev.Channel, ev.Pitch, ev.Velocity)
-		go func() {
-			time.Sleep(time.Duration(ev.DurationMs) * time.Millisecond)
+		v.clock.AfterFunc(time.Duration(ev.DurationMs)*time.Millisecond, func() {
 			v.writer.NoteOff(ev.Channel, ev.Pitch)
-		}()
+		})
 		return nil
 
 	case event.Control:
