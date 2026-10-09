@@ -26,9 +26,13 @@ const maxTickSeconds = 10.0
 // (named 0..1 values such as "activity" or "trouble"). Which data source
 // feeds each input, and how it's scaled into 0..1, is a mapping's job (see
 // internal/mapping), so one theme can be played from any source.
+//
+// Weather derives inputs of its own from those, with their own slow life,
+// for sounds to use alongside the rest (see weather.go).
 type Theme struct {
-	Name   string  `yaml:"name"`
-	Sounds []Sound `yaml:"sounds"`
+	Name    string    `yaml:"name"`
+	Weather []Weather `yaml:"weather"`
+	Sounds  []Sound   `yaml:"sounds"`
 }
 
 type Range struct {
@@ -96,9 +100,10 @@ type Engine struct {
 
 	// clock is seconds of soundscape time: the sum of every tick's dt,
 	// which is what flocks are timed against.
-	clock  float64
-	flocks []*flock
-	crowds map[string]*crowd // by sound name
+	clock   float64
+	flocks  []*flock
+	crowds  map[string]*crowd        // by sound name
+	weather map[string]*weatherState // by weather name
 
 	// programsSent is whether the theme's instruments have been selected
 	// since it was loaded.
@@ -149,11 +154,12 @@ func NewEngine(t Theme, out output.Output) *Engine {
 // probabilistic behaviours (and tests that depend on them) are reproducible.
 func NewEngineWithSeed(t Theme, out output.Output, seed int64) *Engine {
 	return &Engine{
-		theme:  t,
-		output: out,
-		rng:    rand.New(rand.NewSource(seed)),
-		crowds: make(map[string]*crowd),
-		after:  func(d time.Duration, f func()) { time.AfterFunc(d, f) },
+		theme:   t,
+		output:  out,
+		rng:     rand.New(rand.NewSource(seed)),
+		crowds:  make(map[string]*crowd),
+		weather: make(map[string]*weatherState),
+		after:   func(d time.Duration, f func()) { time.AfterFunc(d, f) },
 	}
 }
 
@@ -166,19 +172,30 @@ func (e *Engine) Reload(t Theme) {
 	e.theme = t
 	e.programsSent = false
 	e.forgetCrowds()
+	e.forgetWeather()
 }
 
-// Inputs returns the distinct input names a theme's sounds use, in order of
-// first use.
+// Inputs returns the distinct input names a theme needs from its mapping,
+// in order of first use: those its weather and sounds use, apart from the
+// ones its weather provides.
 func Inputs(t Theme) []string {
 	seen := make(map[string]bool)
+	for _, w := range t.Weather {
+		seen[w.Name] = true
+	}
 	var names []string
-	for _, sound := range t.Sounds {
-		if sound.Input == "" || seen[sound.Input] {
-			continue
+	use := func(name string) {
+		if name == "" || seen[name] {
+			return
 		}
-		seen[sound.Input] = true
-		names = append(names, sound.Input)
+		seen[name] = true
+		names = append(names, name)
+	}
+	for _, w := range t.Weather {
+		use(w.Input)
+	}
+	for _, sound := range t.Sounds {
+		use(sound.Input)
 	}
 	return names
 }
@@ -201,6 +218,8 @@ func (e *Engine) Process(timestamp int64, inputs map[string]float64) {
 	}
 	e.lastTick = timestamp
 	e.clock += dt
+
+	inputs = e.applyWeather(inputs, dt)
 
 	if !e.programsSent {
 		e.sendPrograms()

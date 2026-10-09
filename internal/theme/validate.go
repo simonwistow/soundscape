@@ -46,6 +46,7 @@ func Validate(t Theme) []error {
 	}
 
 	errs = append(errs, validatePrograms(t)...)
+	errs = append(errs, validateWeather(t)...)
 
 	soundNames := make(map[string]bool)
 	for _, snd := range t.Sounds {
@@ -178,6 +179,50 @@ func validateCrowd(label string, s Sound) []error {
 	}
 
 	return append(errs, validateCalls(label, s, "crowd")...)
+}
+
+// validateWeather checks each weather's settings, and that its name is
+// its own: not another weather's, and not an input it's derived from, so
+// weather is always made from the mapping's inputs.
+func validateWeather(t Theme) []error {
+	var errs []error
+	names := make(map[string]bool)
+	for _, w := range t.Weather {
+		names[w.Name] = true
+	}
+
+	seen := make(map[string]bool)
+	for _, w := range t.Weather {
+		label := "weather " + w.Name
+		bad := func(msg string, args ...any) {
+			errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(msg, args...)})
+		}
+		switch {
+		case strings.TrimSpace(w.Name) == "":
+			label = "<unnamed weather>"
+			errs = append(errs, ValidationError{Msg: "a weather has no name"})
+		case seen[w.Name]:
+			bad("duplicate weather name")
+		}
+		seen[w.Name] = true
+
+		switch {
+		case w.Input == "":
+			bad("weather has no input")
+		case names[w.Input]:
+			bad("input %q is weather itself; weather can only follow the mapping's inputs", w.Input)
+		}
+		if w.Build <= 0 {
+			bad("build must be more than 0 seconds")
+		}
+		if w.Clear <= 0 {
+			bad("clear must be more than 0 seconds")
+		}
+		if w.Gusts < 0 || w.Gusts > 1 {
+			bad("invalid gusts %v (expected 0-1)", w.Gusts)
+		}
+	}
+	return errs
 }
 
 // appliesTo lists the settings that only some kinds of sound use, and

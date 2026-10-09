@@ -17,6 +17,12 @@ changes the underlying recording's character.
 | `splash` | [Bathtub water splashes.ogg](https://commons.wikimedia.org/wiki/File:Bathtub_water_splashes.ogg) | gradha | Public domain |
 | `river-gentle` | [Shallow small river with stony riverbed.ogg](https://commons.wikimedia.org/wiki/File:Shallow_small_river_with_stony_riverbed.ogg) | stephan | Public domain |
 | `river-rushing` | [Water fall.ogg](https://commons.wikimedia.org/wiki/File:Water_fall.ogg) | **Benzband** | **CC BY-SA 3.0** |
+| `rain-light` | [Rain (1).ogg](https://commons.wikimedia.org/wiki/File:Rain_(1).ogg) | ezwa | Public domain |
+| `rain-heavy` | [Thunderstorm after hot summer day 17 minutes 01 of 04.ogg](https://commons.wikimedia.org/wiki/File:Thunderstorm_after_hot_summer_day_17_minutes_01_of_04.ogg) | stephan | Public domain |
+| `thunder` | [Storm thunderbolts.ogg](https://commons.wikimedia.org/wiki/File:Storm_thunderbolts.ogg) | stephan | Public domain |
+
+The thunder claps were given 4-8 dB of gain into a limiter, to even them out and carry over the
+rain.
 
 ## themes/market
 

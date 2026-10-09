@@ -54,6 +54,14 @@ pan and distance (gain), and calls at `call_rate`. An optional `rate` gives outb
 calls one to three times within two seconds, bunched towards the start, at the top of the
 velocity range. See `internal/theme/crowd.go`.
 
+A theme's `weather` entries derive inputs of their own, before any sound is processed
+(`Engine.applyWeather`, which copies the inputs rather than changing the caller's map). Each
+follows its `input` with a first-order lag, time constant `build` rising and `clear` falling, and
+multiplies that level by `1 + gust`, where `gust` is an Ornstein-Uhlenbeck process (6s time
+constant, standard deviation `gusts`), so clear weather stays calm. `theme.Inputs` lists what a
+weather follows, not the weather itself, so mappings are checked against what they really need.
+Weather can't follow other weather. See `internal/theme/weather.go`.
+
 Randomness is seeded via `theme.NewEngineWithSeed`; `theme.NewEngine` seeds from the current time
 for live variation, and the CLI's `--seed` flag can pin it for reproducible runs.
 

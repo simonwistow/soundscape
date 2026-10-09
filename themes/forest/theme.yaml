@@ -7,6 +7,7 @@ name: forest-glade
 #   activity -> birdsong, and flocks of starlings passing over
 #   flow     -> the river, gentle to rushing, plus splashes
 #   quirks   -> a woodpecker
+#   trouble  -> a storm: rain, and thunder at its height
 #
 # type: probabilistic
 #   rate is an expected number of events per second (a Poisson process),
@@ -44,6 +45,18 @@ name: forest-glade
 #
 # sample_group paths are relative to this file.
 
+# Weather makes an input of its own from one of the mapping's, with a slow
+# life of its own: it rises towards its input's level with a time constant
+# of build seconds, falls with one of clear seconds, and gusts around that
+# level by up to about gusts of it. Sounds use it like any other input.
+# Weather starts clear.
+weather:
+  - name: storm
+    input: trouble
+    build: 30
+    clear: 90
+    gusts: 0.6
+
 sounds:
   - name: birds
     type: probabilistic
@@ -54,8 +67,8 @@ sounds:
       min: 0.03
       max: 2.5
     velocity:
-      min: 0.5
-      max: 1.0
+      min: 0.4
+      max: 0.8
     duration_ms: 180
     sample_group: samples/birds
     pitch_jitter:
@@ -78,8 +91,8 @@ sounds:
       max: 8
     call_rate: 2
     velocity:
-      min: 0.5
-      max: 0.9
+      min: 0.4
+      max: 0.75
     duration_ms: 180
     sample_group: samples/birds
     pitch_jitter:
@@ -139,3 +152,38 @@ sounds:
     pitch_jitter:
       min: 0.95
       max: 1.1
+
+  # The storm: light rain as it starts, heavier as it builds, with thunder
+  # at its height.
+  - name: rain-light
+    type: continuous
+    output: sample_loop
+    input: storm
+    sample_group: samples/rain-light
+    min_value: 0
+    max_value: 0.8
+
+  - name: rain-heavy
+    type: continuous
+    output: sample_loop
+    input: storm
+    sample_group: samples/rain-heavy
+    min_value: 0
+    max_value: 1
+
+  - name: thunder
+    type: probabilistic
+    output: sample
+    spread: true
+    input: storm
+    rate:
+      min: 0
+      max: 0.08
+    velocity:
+      min: 0.6
+      max: 1.0
+    duration_ms: 10000
+    sample_group: samples/thunder
+    pitch_jitter:
+      min: 0.85
+      max: 1.05
