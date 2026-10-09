@@ -1,11 +1,11 @@
 // Package mapping binds a data source's raw metrics to a theme's abstract
 // inputs. Themes only ever see named 0..1 values ("activity", "trouble",
-// ...); a mapping file says which source to read, which of its metrics
-// feeds each input, and how to condition it (smoothing, normalisation),
-// since the right scale depends entirely on the source - Wikipedia's ~20
-// edits/s and a CDN's 5000 req/s can't share a range.
+// ...); a mapping file says which of a source's metrics feeds each input,
+// and how to condition it (smoothing, normalisation), since the right
+// scale depends entirely on the source - Wikipedia's ~20 edits/s and a
+// CDN's 5000 req/s can't share a range. The source itself is --source's;
+// it picks the mapping named after it unless --mappings picks another.
 //
-//	source: fastly
 //	inputs:
 //	  activity:
 //	    metric: requests
@@ -17,7 +17,10 @@
 package mapping
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,16 +30,12 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/simonwistow/soundscape/internal/metrics"
-	"github.com/simonwistow/soundscape/internal/source"
 )
 
-// Dir is where bare mapping names (--aliases wikipedia) are looked up.
+// Dir is where bare mapping names (--mappings wikipedia) are looked up.
 const Dir = "mappings"
 
 type Mapping struct {
-	// Source is a source spec, as --source takes: wikipedia,
-	// fastly:service=SID, file:monday.jsonl and so on.
-	Source string           `yaml:"source"`
 	Inputs map[string]Input `yaml:"inputs"`
 }
 
@@ -68,8 +67,19 @@ func Load(path string) (Mapping, error) {
 	if err != nil {
 		return Mapping{}, err
 	}
+	// A mapping used to name its source; now --source does.
+	var keys map[string]any
+	if err := yaml.Unmarshal(b, &keys); err == nil {
+		if _, ok := keys["source"]; ok {
+			return Mapping{}, fmt.Errorf("%s: a mapping no longer names its source; remove source:, and pick the source with --source", path)
+		}
+	}
+
+	// Strictly, so a misspelt key is an error rather than ignored.
 	var m Mapping
-	if err := yaml.Unmarshal(b, &m); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(&m); err != nil && !errors.Is(err, io.EOF) {
 		return Mapping{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return m, nil
@@ -79,46 +89,38 @@ func Load(path string) (Mapping, error) {
 // against a theme.
 func Validate(m Mapping) []error {
 	var errs []error
-
-	kind := ""
-	if m.Source == "" {
-		errs = append(errs, fmt.Errorf("mapping has no source (expected one of %s)", strings.Join(source.Kinds(), ", ")))
-	} else if spec, err := source.ParseSpec(m.Source); err != nil {
-		errs = append(errs, fmt.Errorf("source: %v", strings.TrimPrefix(err.Error(), "--source ")))
-	} else {
-		kind = spec.Kind
-	}
 	if len(m.Inputs) == 0 {
 		errs = append(errs, fmt.Errorf("mapping defines no inputs"))
 	}
-
 	for _, name := range m.InputNames() {
 		in := m.Inputs[name]
-		switch kind {
-		case "prometheus":
-			if strings.TrimSpace(in.Query) == "" {
-				errs = append(errs, fmt.Errorf("%s: prometheus input has no query", name))
-			}
-			if in.Metric != "" {
-				errs = append(errs, fmt.Errorf("%s: prometheus inputs use query, not metric", name))
-			}
-		case "file":
-			// A recording of a Prometheus run holds each query's result
-			// under its input's name, so a query stands in for a metric.
-			if in.Metric == "" && strings.TrimSpace(in.Query) == "" {
-				errs = append(errs, fmt.Errorf("%s: input has no metric", name))
-			}
-		default:
-			if in.Metric == "" {
-				errs = append(errs, fmt.Errorf("%s: input has no metric", name))
-			}
-			if in.Query != "" {
-				errs = append(errs, fmt.Errorf("%s: query is only meaningful for the prometheus source", name))
-			}
+		switch hasQuery := strings.TrimSpace(in.Query) != ""; {
+		case in.Metric == "" && !hasQuery:
+			errs = append(errs, fmt.Errorf("%s: input has no metric (or, for prometheus, query)", name))
+		case in.Metric != "" && hasQuery:
+			errs = append(errs, fmt.Errorf("%s: input has both a metric and a query; give one", name))
 		}
 		if in.Normalise != nil && in.Normalise.Min >= in.Normalise.Max {
 			errs = append(errs, fmt.Errorf("%s: invalid normalise range: min (%v) >= max (%v)",
 				name, in.Normalise.Min, in.Normalise.Max))
+		}
+	}
+	return errs
+}
+
+// CheckSource reports what keeps a mapping from working with a kind of
+// source: prometheus answers PromQL queries, the others have metrics, and a
+// recording may hold either (a Prometheus run's results are recorded under
+// their inputs' names).
+func CheckSource(m Mapping, kind string) []error {
+	var errs []error
+	for _, name := range m.InputNames() {
+		in := m.Inputs[name]
+		switch {
+		case kind == "prometheus" && in.Query == "":
+			errs = append(errs, fmt.Errorf("%s: the prometheus source needs a query, not a metric", name))
+		case kind != "prometheus" && kind != "file" && in.Query != "":
+			errs = append(errs, fmt.Errorf("%s: a query is only for the prometheus source; %s needs a metric", name, kind))
 		}
 	}
 	return errs

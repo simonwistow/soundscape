@@ -9,8 +9,6 @@
 # The ranges suit the all-wikis firehose (~13 edits/s, ~12 KB/s changed,
 # ~2 deletions/s, ~1.5 new pages/s); a single wiki is much quieter.
 
-source: wikipedia
-
 inputs:
   activity:
     metric: edits

@@ -4,8 +4,6 @@
 # its whole range; useful for developing a theme with no data source at all.
 # Its metrics are named and scaled like Fastly's.
 
-source: simulate
-
 inputs:
   activity:
     metric: requests

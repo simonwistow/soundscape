@@ -1,6 +1,7 @@
 package mapping
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,37 +26,67 @@ func TestValidate(t *testing.T) {
 		m    Mapping
 		want string // substring of an expected error; "" means valid
 	}{
-		{"ok", Mapping{Source: "fastly", Inputs: map[string]Input{"activity": {Metric: "requests"}}}, ""},
-		{"prometheus ok", Mapping{Source: "prometheus", Inputs: map[string]Input{"activity": {Query: "up"}}}, ""},
-		{"source spec ok", Mapping{Source: "fastly:service=abc", Inputs: map[string]Input{"activity": {Metric: "requests"}}}, ""},
-		{"prometheus spec ok", Mapping{Source: "prometheus:http://h:9090,interval=5s", Inputs: map[string]Input{"activity": {Query: "up"}}}, ""},
-		{"prometheus spec needs queries", Mapping{Source: "prometheus:http://h:9090", Inputs: map[string]Input{"a": {Metric: "x"}}}, "no query"},
-		{"file with metrics", Mapping{Source: "file:monday.jsonl", Inputs: map[string]Input{"a": {Metric: "requests"}}}, ""},
-		{"file replaying prometheus", Mapping{Source: "file:monday.jsonl", Inputs: map[string]Input{"a": {Query: "up"}}}, ""},
-		{"file input with neither", Mapping{Source: "file:monday.jsonl", Inputs: map[string]Input{"a": {}}}, "no metric"},
-		{"bad source option", Mapping{Source: "fastly:region=eu", Inputs: map[string]Input{"a": {Metric: "x"}}}, `source: fastly:region=eu: unknown option "region"`},
-		{"no source", Mapping{Inputs: map[string]Input{"a": {Metric: "x"}}}, "no source"},
-		{"unknown source", Mapping{Source: "carrier-pigeon", Inputs: map[string]Input{"a": {Metric: "x"}}}, "unknown source"},
-		{"no inputs", Mapping{Source: "simulate"}, "no inputs"},
-		{"no metric", Mapping{Source: "simulate", Inputs: map[string]Input{"a": {}}}, "no metric"},
-		{"query off prometheus", Mapping{Source: "fastly", Inputs: map[string]Input{"a": {Metric: "x", Query: "up"}}}, "only meaningful"},
-		{"prometheus no query", Mapping{Source: "prometheus", Inputs: map[string]Input{"a": {Metric: "x"}}}, "no query"},
-		{"inverted range", Mapping{Source: "simulate", Inputs: map[string]Input{"a": {Metric: "x", Normalise: &Range{Min: 5, Max: 1}}}}, "invalid normalise range"},
+		{"metric", Mapping{Inputs: map[string]Input{"activity": {Metric: "requests"}}}, ""},
+		{"query", Mapping{Inputs: map[string]Input{"activity": {Query: "up"}}}, ""},
+		{"no inputs", Mapping{}, "no inputs"},
+		{"neither", Mapping{Inputs: map[string]Input{"a": {}}}, "no metric"},
+		{"both", Mapping{Inputs: map[string]Input{"a": {Metric: "x", Query: "up"}}}, "both a metric and a query"},
+		{"inverted range", Mapping{Inputs: map[string]Input{"a": {Metric: "x", Normalise: &Range{Min: 5, Max: 1}}}}, "invalid normalise range"},
 	} {
-		errs := Validate(tc.m)
-		if tc.want == "" {
-			if len(errs) != 0 {
-				t.Errorf("%s: unexpected errors %v", tc.name, errs)
-			}
-			continue
+		expect(t, tc.name, Validate(tc.m), tc.want)
+	}
+}
+
+func TestCheckSource(t *testing.T) {
+	metrics := Mapping{Inputs: map[string]Input{"a": {Metric: "requests"}}}
+	queries := Mapping{Inputs: map[string]Input{"a": {Query: "up"}}}
+	for _, tc := range []struct {
+		name string
+		m    Mapping
+		kind string
+		want string
+	}{
+		{"fastly metrics", metrics, "fastly", ""},
+		{"fastly queries", queries, "fastly", "only for the prometheus source"},
+		{"prometheus queries", queries, "prometheus", ""},
+		{"prometheus metrics", metrics, "prometheus", "needs a query"},
+		{"file metrics", metrics, "file", ""},
+		// A recording of a Prometheus run, under its inputs' names.
+		{"file queries", queries, "file", ""},
+	} {
+		expect(t, tc.name, CheckSource(tc.m, tc.kind), tc.want)
+	}
+}
+
+func expect(t *testing.T, name string, errs []error, want string) {
+	t.Helper()
+	if want == "" {
+		if len(errs) != 0 {
+			t.Errorf("%s: unexpected errors %v", name, errs)
 		}
-		found := false
-		for _, e := range errs {
-			found = found || strings.Contains(e.Error(), tc.want)
+		return
+	}
+	for _, e := range errs {
+		if strings.Contains(e.Error(), want) {
+			return
 		}
-		if !found {
-			t.Errorf("%s: expected an error containing %q, got %v", tc.name, tc.want, errs)
-		}
+	}
+	t.Errorf("%s: expected an error containing %q, got %v", name, want, errs)
+}
+
+func TestLoadRejectsASource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.yaml")
+	os.WriteFile(path, []byte("source: fastly\ninputs:\n  a: { metric: x }\n"), 0o644)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "pick the source with --source") {
+		t.Errorf("Load of a mapping with a source: %v", err)
+	}
+}
+
+func TestLoadRejectsUnknownKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "typo.yaml")
+	os.WriteFile(path, []byte("inputs:\n  a: { metric: x, smoothnig: 3 }\n"), 0o644)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "smoothnig") {
+		t.Errorf("Load of a misspelt key: %v", err)
 	}
 }
 
@@ -68,7 +99,7 @@ func TestUnbound(t *testing.T) {
 }
 
 func TestConditionerNormalisesAndSmooths(t *testing.T) {
-	c := NewConditioner(Mapping{Source: "simulate", Inputs: map[string]Input{
+	c := NewConditioner(Mapping{Inputs: map[string]Input{
 		"activity": {Metric: "requests", Normalise: &Range{Min: 0, Max: 1000}},
 		"slow":     {Metric: "requests", Smoothing: 10},
 	}})
@@ -88,7 +119,7 @@ func TestConditionerNormalisesAndSmooths(t *testing.T) {
 }
 
 func TestConditionerPrometheusKeysByInputName(t *testing.T) {
-	c := NewConditioner(Mapping{Source: "prometheus", Inputs: map[string]Input{
+	c := NewConditioner(Mapping{Inputs: map[string]Input{
 		"activity": {Query: "sum(rate(x[1m]))"},
 	}})
 	if got := c.Apply(map[string]float64{"activity": 42})["activity"]; got != 42 {
@@ -97,7 +128,7 @@ func TestConditionerPrometheusKeysByInputName(t *testing.T) {
 }
 
 func TestConditionerReloadPreservesSmoothing(t *testing.T) {
-	m := Mapping{Source: "simulate", Inputs: map[string]Input{"slow": {Metric: "x", Smoothing: 10}}}
+	m := Mapping{Inputs: map[string]Input{"slow": {Metric: "x", Smoothing: 10}}}
 	c := NewConditioner(m)
 	c.Apply(map[string]float64{"x": 1000})
 	c.Apply(map[string]float64{"x": 0}) // 900

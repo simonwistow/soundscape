@@ -5,8 +5,6 @@
 # are fields of the real-time API's `aggregated` record; the ranges suit a
 # busy service, so tune normalise to your own traffic.
 
-source: fastly
-
 inputs:
   activity:
     metric: requests

@@ -14,8 +14,6 @@
 #
 # Copy this file and point the queries at your own metrics.
 
-source: prometheus
-
 inputs:
   activity:
     query: sum(rate(prometheus_http_requests_total[1m]))

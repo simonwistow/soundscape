@@ -81,7 +81,7 @@ release a new version instead.
   `themes/` (with their samples) and `mappings/` directories, and
   `LICENSE`, `README.md`, `CHANGELOG.md` and `ATTRIBUTION.md`. The binary finds themes
   and mappings relative to the directory it is run from, so run it from the
-  unpacked bundle, or pass `--theme` and `--aliases` paths.
+  unpacked bundle, or pass `--theme` and `--mappings` paths.
 - `SHA256SUMS` for both.
 
 The Linux build needs glibc 2.39 (Ubuntu 24.04) or newer, and the ALSA

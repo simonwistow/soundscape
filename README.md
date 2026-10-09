@@ -40,22 +40,23 @@ cycles slowly between quiet and busy:
 
 Listen to Wikipedia being edited, live (no account needed):
 
-    go run ./cmd/soundscape --aliases wikipedia
+    go run ./cmd/soundscape --source wikipedia
 
 Try the other example themes:
 
-    go run ./cmd/soundscape --aliases wikipedia --theme themes/market/theme.yaml
-    go run ./cmd/soundscape --aliases wikipedia --theme themes/road/theme.yaml
+    go run ./cmd/soundscape --source wikipedia --theme themes/market/theme.yaml
+    go run ./cmd/soundscape --source wikipedia --theme themes/road/theme.yaml
 
 The `pentatonic` theme plays MIDI notes rather than recordings, so it needs a synth to play them;
 see [MIDI](#midi) below.
 
 ## Data sources
 
-The `--aliases` flag picks a mapping: a bare name means `mappings/<name>.yaml`, or give a path.
-The mapping names its source; `--source` overrides that (e.g. `--source simulate` to play a
-mapping against simulated data). A source is written like an output, `kind[:target][,option=value]`,
-and a mapping's `source:` line can use the same form.
+`--source` says where the telemetry comes from, written like an output,
+`kind[:target][,option=value]`. It also picks the mapping, the one named after it: `--source
+wikipedia:wikis=enwiki` reads `mappings/wikipedia.yaml`. `--mappings` picks another, by name or
+path, e.g. to play the Wikipedia mapping against simulated data with `--source simulate
+--mappings wikipedia`.
 
 | `--source`                          | Mapping                    | Needs |
 |-------------------------------------|----------------------------|-------|
@@ -63,11 +64,10 @@ and a mapping's `source:` line can use the same form.
 | `wikipedia[:wikis=enwiki+dewiki]`   | `mappings/wikipedia.yaml`  | internet access; `wikis` limits it to some wikis |
 | `prometheus[:URL][,interval=5s]`    | `mappings/prometheus.yaml` | a Prometheus server; URL defaults to `PROMETHEUS_URL`, else `http://localhost:9090`; it's polled every second unless `interval` says otherwise |
 | `fastly[:service=SID]`              | `mappings/fastly.yaml`     | a token, from `--token` or `FASTLY_API_TOKEN`; the service defaults to `FASTLY_SERVICE_ID` |
-| `file:PATH[,format=F][,loop=true]`  | whichever fits its metrics, by `--aliases` | a recording; see [Replaying recordings](#replaying-recordings) |
+| `file:PATH[,format=F][,loop=true]`  | whichever fits its metrics, by `--mappings` | a recording; see [Replaying recordings](#replaying-recordings) |
 
-With no `--aliases`, the mapping defaults to the one named after `--source`'s kind (so
-`--source wikipedia:wikis=enwiki` uses `mappings/wikipedia.yaml`); with neither, a configured
-`FASTLY_SERVICE_ID` selects `fastly`, and otherwise the simulation is used.
+With no `--source`, a configured `FASTLY_SERVICE_ID` selects `fastly`, and otherwise the
+simulation is used.
 
 * **simulate**: deterministic synthetic telemetry, for developing themes without any data.
 * **wikipedia**: Wikimedia's public [recent-changes stream](https://stream.wikimedia.org/), with
@@ -86,12 +86,12 @@ With no `--aliases`, the mapping defaults to the one named after `--source`'s ki
 `--source file:PATH` replays a recording of a source's metrics, through whichever mapping fits
 them, so a period can be heard again, or rendered:
 
-    go run ./cmd/soundscape --aliases fastly --source file:monday.csv
+    go run ./cmd/soundscape --source file:monday.csv --mappings fastly
 
 Make one from any source with `--output telemetry:`, which writes each tick's raw metrics, before
 the mapping, as JSON Lines or CSV. Alongside the speakers, or on its own to record quietly:
 
-    go run ./cmd/soundscape --aliases wikipedia --output telemetry:monday.jsonl
+    go run ./cmd/soundscape --source wikipedia --output telemetry:monday.jsonl
 
 Once a metric has turned up, every later tick records it, as 0 when the source left it out (as
 Wikipedia does with whatever didn't happen that second), so a recording replays exactly as the run
@@ -123,12 +123,11 @@ A theme's sounds each follow an **input**, a named value from 0 to 1. A mapping 
 input comes from and how it's scaled:
 
     # themes/forest/theme.yaml          # mappings/wikipedia.yaml
-    sounds:                             source: wikipedia
-      - name: birds                     inputs:
-        type: probabilistic               activity:
-        input: activity                     metric: edits
-        ...                                 smoothing: 8
-                                            normalise: { min: 1, max: 40 }
+    sounds:                             inputs:
+      - name: birds                       activity:
+        type: probabilistic                 metric: edits
+        input: activity                     smoothing: 8
+        ...                                 normalise: { min: 1, max: 40 }
 
 Input names are free, but the bundled themes and mappings use a conventional set, so they
 interoperate:
@@ -307,13 +306,13 @@ Stop after ten minutes:
 
 Log the raw metrics as they arrive:
 
-    go run ./cmd/soundscape --aliases wikipedia --verbose
+    go run ./cmd/soundscape --source wikipedia --verbose
 
 Validate a theme, and optionally check it against a mapping. This catches missing or duplicate
 names, inverted ranges, out-of-range MIDI values, missing sample directories, unknown behaviour
 or output kinds, and theme inputs the mapping doesn't provide:
 
-    go run ./cmd/soundscape validate --aliases wikipedia themes/forest/theme.yaml
+    go run ./cmd/soundscape validate --source wikipedia themes/forest/theme.yaml
 
 Edit the theme or mapping while a run is going and it hot-reloads automatically. Files are
 checked once a second and validated before being applied, so an invalid edit is logged and

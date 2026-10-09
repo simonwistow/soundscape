@@ -16,6 +16,6 @@ cd "${2:-.}"
 
 for theme in themes/*/theme.yaml; do
   for mapping in mappings/*.yaml; do
-    "$bin" validate --aliases "$mapping" "$theme"
+    "$bin" validate --source "$(basename "$mapping" .yaml)" --mappings "$mapping" "$theme"
   done
 done

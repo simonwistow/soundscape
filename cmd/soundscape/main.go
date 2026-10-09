@@ -54,9 +54,9 @@ func main() {
 	}
 
 	var (
-		aliases    = flag.String("aliases", "", "mapping from source metrics to theme inputs: a name in mappings/ or a path (default: the one named after --source's kind if given, else fastly if FASTLY_SERVICE_ID is set, else simulate)")
-		sourceFlag = flag.String("source", "", "where the telemetry comes from, overriding the mapping's source:"+source.Help())
-		token      = flag.String("token", os.Getenv("FASTLY_API_TOKEN"), "Fastly API token")
+		sourceFlag   = flag.String("source", "", "where the telemetry comes from (default fastly if FASTLY_SERVICE_ID is set, else simulate):"+source.Help())
+		mappingsFlag = flag.String("mappings", "", "mapping from the source's metrics to the theme's inputs: a name in mappings/ or a path (default: the one named after the source, e.g. wikipedia for --source wikipedia:wikis=enwiki)")
+		token        = flag.String("token", os.Getenv("FASTLY_API_TOKEN"), "Fastly API token")
 
 		themePath = flag.String("theme", "themes/forest/theme.yaml", "theme YAML file")
 		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, to play note and cc sounds through the speakers and into recordings")
@@ -78,34 +78,17 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if *sourceFlag != "" {
-		if _, err := source.ParseSpec(*sourceFlag); err != nil {
-			log.Fatal(err)
-		}
-	}
-	if *aliases == "" {
-		switch {
-		case *sourceFlag != "":
-			kind, _, _ := strings.Cut(*sourceFlag, ":")
-			if kind == "file" {
-				log.Fatalf("--source %s: say whose metrics the file holds with --aliases, e.g. --aliases fastly", *sourceFlag)
-			}
-			*aliases = kind
-		case os.Getenv("FASTLY_SERVICE_ID") != "":
-			*aliases = "fastly"
-		default:
-			*aliases = "simulate"
-		}
-	}
-	mappingPath := mapping.Resolve(*aliases)
-
-	m, err := loadMapping(mappingPath, *sourceFlag)
+	srcSpec, mappingPath, err := pickSource(*sourceFlag, *mappingsFlag)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("source: %s, mapping: %s", m.Source, mappingPath)
+	m, err := loadMapping(mappingPath, srcSpec.Kind)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("source: %s, mapping: %s", srcSpec, mappingPath)
 
-	src, err := buildSource(m, *token, *verbose)
+	src, err := buildSource(srcSpec, m, *token, *verbose)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -175,7 +158,7 @@ func main() {
 
 	if *watch {
 		r := &reloader{
-			themePath: *themePath, mappingPath: mappingPath, sourceOverride: *sourceFlag,
+			themePath: *themePath, mappingPath: mappingPath, sourceKind: srcSpec.Kind,
 			engine: engine, conditioner: conditioner, player: outs.player,
 			theme: th, mapping: m,
 		}
@@ -273,17 +256,42 @@ func buildVersion() string {
 	return "devel"
 }
 
-// loadMapping loads and validates a mapping file, applying a --source
-// override first so the override is what gets validated.
-func loadMapping(path, sourceOverride string) (mapping.Mapping, error) {
+// pickSource works out the source and the mapping file: --source, else
+// fastly if FASTLY_SERVICE_ID is set, else simulate; and --mappings, else
+// the mapping named after the source. A recording's metrics could be
+// anyone's, so a file source needs --mappings.
+func pickSource(sourceFlag, mappingsFlag string) (source.Spec, string, error) {
+	if sourceFlag == "" {
+		sourceFlag = "simulate"
+		if os.Getenv("FASTLY_SERVICE_ID") != "" {
+			sourceFlag = "fastly"
+		}
+	}
+	spec, err := source.ParseSpec(sourceFlag)
+	if err != nil {
+		return source.Spec{}, "", err
+	}
+	if mappingsFlag == "" {
+		if spec.Kind == "file" {
+			return source.Spec{}, "", fmt.Errorf("--source %s: say whose metrics the file holds with --mappings, e.g. --mappings fastly", sourceFlag)
+		}
+		mappingsFlag = spec.Kind
+	}
+	return spec, mapping.Resolve(mappingsFlag), nil
+}
+
+// loadMapping loads a mapping file and checks it, and that it suits the
+// kind of source it'll be used with ("" to skip that).
+func loadMapping(path, sourceKind string) (mapping.Mapping, error) {
 	m, err := mapping.Load(path)
 	if err != nil {
 		return mapping.Mapping{}, fmt.Errorf("mapping: %w", err)
 	}
-	if sourceOverride != "" {
-		m.Source = sourceOverride
+	issues := mapping.Validate(m)
+	if sourceKind != "" {
+		issues = append(issues, mapping.CheckSource(m, sourceKind)...)
 	}
-	if issues := mapping.Validate(m); len(issues) > 0 {
+	if len(issues) > 0 {
 		msgs := make([]string, len(issues))
 		for i, issue := range issues {
 			msgs[i] = issue.Error()
@@ -303,14 +311,10 @@ func warnUnbound(m mapping.Mapping, th theme.Theme) {
 	}
 }
 
-// buildSource starts the source the mapping's (already validated) source
-// spec names.
-func buildSource(m mapping.Mapping, token string, verbose bool) (source.Source, error) {
-	spec, err := source.ParseSpec(m.Source)
-	if err != nil {
-		return nil, err
-	}
-
+// buildSource starts the source spec names, with the mapping for the
+// Prometheus queries.
+func buildSource(spec source.Spec, m mapping.Mapping, token string, verbose bool) (source.Source, error) {
+	var err error
 	switch spec.Kind {
 	case "simulate":
 		return &source.Simulation{}, nil
@@ -380,17 +384,23 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// runValidate implements `soundscape validate [--aliases X] <theme.yaml>`:
-// load the theme and report every problem theme.Validate finds, plus, with
-// --aliases, the mapping's own problems and any theme inputs it leaves
-// unbound. Exits non-zero if anything is found.
+// runValidate implements `soundscape validate [--source S] [--mappings M]
+// <theme.yaml>`: load the theme and report every problem theme.Validate
+// finds, plus, with --source or --mappings, the mapping's own problems,
+// whether it suits the source, and any theme inputs it leaves unbound. The
+// mapping is picked as for a run. Exits non-zero if anything is found.
 func runValidate(args []string) {
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
-	aliases := fs.String("aliases", "", "also check a mapping (name in mappings/ or path) against the theme")
+	sourceFlag := fs.String("source", "", "also check the mapping for this source against the theme")
+	mappingsFlag := fs.String("mappings", "", "also check this mapping (name in mappings/ or path) against the theme")
+	if err := checkRemovedFlags(args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	fs.Parse(args)
 
 	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: soundscape validate [--aliases mapping] <theme.yaml>")
+		fmt.Fprintln(os.Stderr, "usage: soundscape validate [--source source] [--mappings mapping] <theme.yaml>")
 		os.Exit(2)
 	}
 	path := fs.Arg(0)
@@ -402,8 +412,17 @@ func runValidate(args []string) {
 	}
 	issues := theme.Validate(th)
 
-	if *aliases != "" {
-		mappingPath := mapping.Resolve(*aliases)
+	if *sourceFlag != "" || *mappingsFlag != "" {
+		mappingPath := mapping.Resolve(*mappingsFlag)
+		kind := ""
+		if *sourceFlag != "" {
+			spec, p, err := pickSource(*sourceFlag, *mappingsFlag)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			mappingPath, kind = p, spec.Kind
+		}
 		m, err := mapping.Load(mappingPath)
 		if err != nil {
 			fmt.Printf("%s: failed to load: %v\n", mappingPath, err)
@@ -411,6 +430,11 @@ func runValidate(args []string) {
 		}
 		for _, issue := range mapping.Validate(m) {
 			issues = append(issues, fmt.Errorf("%s: %w", mappingPath, issue))
+		}
+		if kind != "" {
+			for _, issue := range mapping.CheckSource(m, kind) {
+				issues = append(issues, fmt.Errorf("%s: %w", mappingPath, issue))
+			}
 		}
 		for _, name := range mapping.Unbound(m, theme.Inputs(th)) {
 			issues = append(issues, fmt.Errorf("input %q is used by the theme but not provided by %s", name, mappingPath))
@@ -465,6 +489,7 @@ func runSoundFontPresets(args []string) {
 // removedFlags maps the flags --source and --output replaced to their new
 // form.
 var removedFlags = map[string]string{
+	"aliases":             "--mappings NAME (and --source now picks the mapping named after it)",
 	"simulate":            "--source simulate",
 	"service-id":          "--source fastly:service=SID",
 	"prometheus-url":      "--source prometheus:URL",
@@ -776,7 +801,7 @@ func watchFile(path string, apply func() error) {
 // reloader applies hot-reloaded theme and mapping files. It remembers the
 // current pair so each side can be checked against the other.
 type reloader struct {
-	themePath, mappingPath, sourceOverride string
+	themePath, mappingPath, sourceKind string
 
 	engine      *theme.Engine
 	conditioner *mapping.Conditioner
@@ -815,19 +840,16 @@ func (r *reloader) reloadTheme() error {
 }
 
 func (r *reloader) reloadMapping() error {
-	m, err := loadMapping(r.mappingPath, r.sourceOverride)
+	m, err := loadMapping(r.mappingPath, r.sourceKind)
 	if err != nil {
 		return fmt.Errorf("%v\n(keeping previous mapping)", err)
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	// The running source was built from the old mapping (including the
-	// Prometheus queries), so only conditioning can change live.
-	if m.Source != r.mapping.Source {
-		return fmt.Errorf("source changed from %s to %s; restart to switch sources (keeping previous mapping)", r.mapping.Source, m.Source)
-	}
-	if strings.HasPrefix(m.Source, "prometheus") && !sameQueries(m, r.mapping) {
+	// The running Prometheus source was built with the old queries, so
+	// only conditioning can change live.
+	if r.sourceKind == "prometheus" && !sameQueries(m, r.mapping) {
 		return fmt.Errorf("Prometheus queries changed; restart to apply them (keeping previous mapping)")
 	}
 	warnUnbound(m, r.theme)
