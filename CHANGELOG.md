@@ -13,6 +13,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `type: crowd` sounds gather a crowd whose `size` follows the input, people drifting in and out over a few seconds. Each person has their own voice, place and distance, and calls `call_rate` times a second; an optional `rate` gives outbursts, when everyone calls at once and then tails off. The market theme's shoppers are now a crowd.
 - A theme's `weather` makes an input of its own from one of the mapping's: it builds up towards that input's level over `build` seconds, takes `clear` seconds to die away, and `gusts` around its level, so a storm has a slow life of its own rather than following the telemetry tick by tick. The forest theme has a storm on `trouble`, with light and heavy rain and thunder.
 
+- OSC output. `--osc host:port` sends every event as an OSC message over UDP, addressed by the sound that made it (e.g. `/soundscape/birds/sample`, with its group, pitch, gain, pan and duration), for SuperCollider, Max, Pure Data and the like. `--osc-prefix` changes `/soundscape`, and `--sample-player=false` turns off the built-in sample player, for when the receiver plays the samples itself. `examples/osc/supercollider.scd` plays a theme's samples in SuperCollider from them.
+
 ### Changed
 
 - The forest's birdsong is a little quieter.

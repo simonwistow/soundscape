@@ -82,6 +82,12 @@ Each `Sound` has a `type` (the scheduling primitive: `probabilistic`, `continuou
   loop's gain, so two `sample_loop` sounds sharing an input with opposite ramps (see
   `themes/forest/theme.yaml`'s `river-gentle`/`river-rushing`) crossfade against each other.
 
+The OSC backend (`internal/osc`) is the exception: it sends every kind of event, so a receiver
+gets everything a theme does, samples included. It encodes OSC 1.0 itself (int32, float32 and
+string arguments; no bundles) and writes each message as one UDP datagram, ignoring write errors
+so a receiver that isn't running yet just misses what's sent meanwhile. Spread and flock calls
+arrive when they're due, not early with a timetag.
+
 `sample_group` paths are relative to the theme file (resolved in `theme.Load`), so a theme
 directory (`theme.yaml` + `samples/`) is self-contained wherever it's run from. `cmd/gensamples`
 procedurally synthesizes placeholder WAV assets (tone sweeps, filtered noise) for bootstrapping a

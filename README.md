@@ -169,6 +169,39 @@ Or record them as a Standard MIDI File (finalized on exit, including Ctrl+C):
 
 Live MIDI, a SoundFont and a MIDI file can all be used at once, alongside a theme's samples.
 
+## OSC
+
+Every event, from every kind of sound, can be sent as an [Open Sound Control](https://opensoundcontrol.stanford.edu/)
+message over UDP, for SuperCollider, Max, Pure Data, TouchDesigner or anything else that speaks
+OSC to play, or react to, as it likes:
+
+    go run ./cmd/soundscape --theme themes/forest/theme.yaml --osc localhost:57120
+
+Each message is addressed by the sound that made it, so a receiver can pick sounds out with one
+pattern match:
+
+| Address | Arguments |
+|---|---|
+| `/soundscape/<sound>/note` | `i` pitch, `i` velocity, `i` duration_ms, `i` channel |
+| `/soundscape/<sound>/sample` | `s` group, `f` pitch, `f` gain, `f` pan, `i` duration_ms, `i` channel |
+| `/soundscape/<sound>/loop` | `s` group, `f` pitch, `f` gain, `f` pan, `i` channel |
+| `/soundscape/<sound>/control` | `f` value, `i` controller, `i` channel |
+| `/soundscape/program` | `i` channel, `i` bank, `i` program |
+
+A sample's group is its `sample_group` directory's name (e.g. `birds`) and its pitch a playback
+ratio (1 is as recorded); pan runs from -1 (left) to 1 (right). A loop's message comes every tick
+while it plays, with its current gain, so it doubles as a continuous control. `--osc-prefix`
+changes `/soundscape`.
+
+The built-in sample player still plays a theme's samples alongside OSC. If the receiver plays them
+itself, turn the player off with `--sample-player=false`.
+
+`examples/osc/supercollider.scd` is a receiver to start from: it plays a theme's samples in
+SuperCollider, from the OSC messages, much as the built-in player does.
+
+    /Applications/SuperCollider.app/Contents/MacOS/sclang examples/osc/supercollider.scd themes/forest/samples
+    go run ./cmd/soundscape --theme themes/forest/theme.yaml --osc localhost:57120 --sample-player=false
+
 ## More options
 
 Pin the random seed for a reproducible run:
@@ -233,6 +266,7 @@ real recordings are ready:
     internal/synth       SoundFont output backend
     internal/sampler     WAV sample-player output backend
     internal/midi        MIDI output backends: live (RtMidi) and Standard MIDI File
+    internal/osc         OSC output over UDP
     cmd/soundscape       CLI
     cmd/gensamples       placeholder sample asset generator
     internal/cmd/changelog  CHANGELOG.md linting and release tooling (see RELEASING.md)
@@ -258,7 +292,7 @@ text-only Console backend.
 ## Next steps
 
 1. Add more stochastic actors alongside flocks, crowds and weather.
-2. Add MIDI 2.0/OSC output.
+2. Add MIDI 2.0 output, once synths support it more widely.
 3. Embed themes, mappings and optionally assets into a single distributable binary.
 
 ## License

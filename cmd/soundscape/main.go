@@ -16,6 +16,7 @@ import (
 	"github.com/simonwistow/soundscape/internal/fastly"
 	"github.com/simonwistow/soundscape/internal/mapping"
 	"github.com/simonwistow/soundscape/internal/midi"
+	"github.com/simonwistow/soundscape/internal/osc"
 	"github.com/simonwistow/soundscape/internal/output"
 	"github.com/simonwistow/soundscape/internal/prometheus"
 	"github.com/simonwistow/soundscape/internal/sampler"
@@ -63,6 +64,9 @@ func main() {
 		midiOut   = flag.String("midi-out", "", "optional path to write a Standard MIDI File (.mid) of note/cc-output sounds")
 		midiPort  = flag.String("midi-port", "", "send note/cc-output sounds to this MIDI output port, live (see `soundscape midi-ports`)")
 		midiVirt  = flag.String("midi-virtual", "", "create a virtual MIDI port with this name and send note/cc-output sounds to it, live (macOS and Linux)")
+		oscAddr   = flag.String("osc", "", "send every event as an OSC message over UDP to this host:port, e.g. localhost:57120 for SuperCollider")
+		oscPrefix = flag.String("osc-prefix", "/soundscape", "the start of every OSC address")
+		samples   = flag.Bool("sample-player", true, "play sample/sample_loop sounds through the built-in sample player; false leaves them to other outputs, such as --osc")
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
 		watch     = flag.Bool("watch", true, "reload the theme and mapping files automatically when they change")
@@ -113,6 +117,9 @@ func main() {
 		midiOut:     *midiOut,
 		midiPort:    *midiPort,
 		midiVirtual: *midiVirt,
+		osc:         *oscAddr,
+		oscPrefix:   *oscPrefix,
+		noSamples:   !*samples,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -336,14 +343,18 @@ type outputConfig struct {
 	soundFont             string
 	midiOut               string
 	midiPort, midiVirtual string
+	osc, oscPrefix        string
+	noSamples             bool
 }
 
 // buildOutput assembles whichever output backends the theme and flags call
 // for: the WAV sample player is started automatically whenever the theme
 // references any sample_group (no flag needed, so a sample-only theme is
 // self-contained), the SoundFont backend is added if --soundfont is given,
-// the MIDI file backend if --midi-out is given, and a live MIDI port if
-// --midi-port or --midi-virtual is. A theme can use several of these at
+// the MIDI file backend if --midi-out is given, a live MIDI port if
+// --midi-port or --midi-virtual is, and OSC if --osc is. The sample player
+// can be turned off, for when another program plays the samples from OSC
+// instead. A theme can use several of these at
 // once (e.g. sampled birds alongside a SoundFont-driven instrument). With
 // none, falls back to the Console backend so the theme can still be
 // exercised with no audio at all.
@@ -352,7 +363,7 @@ func buildOutput(th theme.Theme, cfg outputConfig) (output.Output, *sampler.Play
 	var closers []func()
 	var player *sampler.Player
 
-	if groups := sampleGroups(th); len(groups) > 0 {
+	if groups := sampleGroups(th); len(groups) > 0 && !cfg.noSamples {
 		p, err := sampler.NewPlayer(sampleRate)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("starting sample player: %w", err)
@@ -418,6 +429,16 @@ func buildOutput(th theme.Theme, cfg outputConfig) (output.Output, *sampler.Play
 				log.Printf("midi: closing %s: %v", live, err)
 			}
 		})
+	}
+
+	if cfg.osc != "" {
+		o, err := osc.Dial(cfg.osc, cfg.oscPrefix)
+		if err != nil {
+			return fail(err)
+		}
+		log.Printf("osc: sending to %s", o)
+		outs = append(outs, o)
+		closers = append(closers, func() { _ = o.Close() })
 	}
 
 	if len(outs) == 0 {
