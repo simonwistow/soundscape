@@ -27,15 +27,15 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/simonwistow/soundscape/internal/metrics"
+	"github.com/simonwistow/soundscape/internal/source"
 )
 
 // Dir is where bare mapping names (--aliases wikipedia) are looked up.
 const Dir = "mappings"
 
-// Sources lists the source names a mapping may select.
-var Sources = []string{"simulate", "fastly", "prometheus", "wikipedia"}
-
 type Mapping struct {
+	// Source is a source spec, as --source takes: wikipedia,
+	// fastly:service=SID and so on.
 	Source string           `yaml:"source"`
 	Inputs map[string]Input `yaml:"inputs"`
 }
@@ -80,15 +80,13 @@ func Load(path string) (Mapping, error) {
 func Validate(m Mapping) []error {
 	var errs []error
 
-	known := false
-	for _, s := range Sources {
-		known = known || s == m.Source
-	}
-	switch {
-	case m.Source == "":
-		errs = append(errs, fmt.Errorf("mapping has no source (expected one of %s)", strings.Join(Sources, ", ")))
-	case !known:
-		errs = append(errs, fmt.Errorf("unknown source %q (expected one of %s)", m.Source, strings.Join(Sources, ", ")))
+	kind := ""
+	if m.Source == "" {
+		errs = append(errs, fmt.Errorf("mapping has no source (expected one of %s)", strings.Join(source.Kinds(), ", ")))
+	} else if spec, err := source.ParseSpec(m.Source); err != nil {
+		errs = append(errs, fmt.Errorf("source: %v", strings.TrimPrefix(err.Error(), "--source ")))
+	} else {
+		kind = spec.Kind
 	}
 	if len(m.Inputs) == 0 {
 		errs = append(errs, fmt.Errorf("mapping defines no inputs"))
@@ -96,14 +94,15 @@ func Validate(m Mapping) []error {
 
 	for _, name := range m.InputNames() {
 		in := m.Inputs[name]
-		if m.Source == "prometheus" {
+		switch kind {
+		case "prometheus":
 			if strings.TrimSpace(in.Query) == "" {
 				errs = append(errs, fmt.Errorf("%s: prometheus input has no query", name))
 			}
 			if in.Metric != "" {
 				errs = append(errs, fmt.Errorf("%s: prometheus inputs use query, not metric", name))
 			}
-		} else {
+		default:
 			if in.Metric == "" {
 				errs = append(errs, fmt.Errorf("%s: input has no metric", name))
 			}
@@ -180,8 +179,9 @@ func (c *Conditioner) Apply(raw map[string]float64) map[string]float64 {
 
 	out := make(map[string]float64, len(c.mapping.Inputs))
 	for name, in := range c.mapping.Inputs {
+		// Prometheus results come keyed by input name.
 		key := in.Metric
-		if c.mapping.Source == "prometheus" {
+		if key == "" {
 			key = name
 		}
 		v := c.smoothers[name].Update(raw[key])

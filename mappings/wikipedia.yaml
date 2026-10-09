@@ -2,7 +2,7 @@
 #
 # Wikimedia's public recent-changes stream: every edit, new page and log
 # action across all wikis, about 30 events a second, no account needed.
-# Restrict it with e.g. --wikipedia-wikis enwiki. Metrics are per-second
+# Restrict it with e.g. --source wikipedia:wikis=enwiki. Metrics are per-second
 # rates; see internal/wikipedia for the full list (edits, new_pages,
 # human_edits, bot_edits, bytes_changed, log_delete, log_upload, ...).
 #

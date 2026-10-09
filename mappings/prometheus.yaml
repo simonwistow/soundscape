@@ -1,8 +1,9 @@
 # Prometheus -> theme inputs.
 #
 # Each input is a PromQL `query` that should reduce to one number (a vector
-# result is summed). The server is --prometheus-url / PROMETHEUS_URL
-# (default http://localhost:9090).
+# result is summed). The server is --source prometheus:URL, else
+# PROMETHEUS_URL, else http://localhost:9090; add ,interval=5s to poll less
+# often than every second.
 #
 # This example queries Prometheus's own HTTP metrics, so it works against a
 # bare Prometheus with no other exporters: the soundscape's polling is

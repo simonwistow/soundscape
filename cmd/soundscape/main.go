@@ -52,17 +52,9 @@ func main() {
 	}
 
 	var (
-		aliases    = flag.String("aliases", "", "mapping from source metrics to theme inputs: a name in mappings/ or a path (default: the one named after --source if given, else fastly if a service ID is set, else simulate)")
-		sourceName = flag.String("source", "", "override the mapping's source: "+strings.Join(mapping.Sources, ", "))
-		simulate   = flag.Bool("simulate", false, "shorthand for --source simulate")
-
-		serviceID = flag.String("service-id", os.Getenv("FASTLY_SERVICE_ID"), "Fastly service ID")
-		token     = flag.String("token", os.Getenv("FASTLY_API_TOKEN"), "Fastly API token")
-
-		promURL      = flag.String("prometheus-url", envOr("PROMETHEUS_URL", "http://localhost:9090"), "Prometheus server URL")
-		promInterval = flag.Duration("prometheus-interval", time.Second, "how often to evaluate the Prometheus queries")
-
-		wikis = flag.String("wikipedia-wikis", "", "comma-separated wiki IDs to count (e.g. enwiki,dewiki); default all Wikimedia wikis")
+		aliases    = flag.String("aliases", "", "mapping from source metrics to theme inputs: a name in mappings/ or a path (default: the one named after --source's kind if given, else fastly if FASTLY_SERVICE_ID is set, else simulate)")
+		sourceFlag = flag.String("source", "", "where the telemetry comes from, overriding the mapping's source:"+source.Help())
+		token      = flag.String("token", os.Getenv("FASTLY_API_TOKEN"), "Fastly API token")
 
 		themePath = flag.String("theme", "themes/forest/theme.yaml", "theme YAML file")
 		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, to play note and cc sounds through the speakers and into recordings")
@@ -84,14 +76,17 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if *simulate {
-		*sourceName = "simulate"
+	if *sourceFlag != "" {
+		if _, err := source.ParseSpec(*sourceFlag); err != nil {
+			log.Fatal(err)
+		}
 	}
 	if *aliases == "" {
 		switch {
-		case *sourceName != "":
-			*aliases = *sourceName
-		case *serviceID != "":
+		case *sourceFlag != "":
+			kind, _, _ := strings.Cut(*sourceFlag, ":")
+			*aliases = kind
+		case os.Getenv("FASTLY_SERVICE_ID") != "":
 			*aliases = "fastly"
 		default:
 			*aliases = "simulate"
@@ -99,20 +94,13 @@ func main() {
 	}
 	mappingPath := mapping.Resolve(*aliases)
 
-	m, err := loadMapping(mappingPath, *sourceName)
+	m, err := loadMapping(mappingPath, *sourceFlag)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("source: %s, mapping: %s", m.Source, mappingPath)
 
-	src, err := buildSource(m, sourceConfig{
-		serviceID:    *serviceID,
-		token:        *token,
-		promURL:      *promURL,
-		promInterval: *promInterval,
-		wikis:        *wikis,
-		verbose:      *verbose,
-	})
+	src, err := buildSource(m, *token, *verbose)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -177,7 +165,7 @@ func main() {
 
 	if *watch {
 		r := &reloader{
-			themePath: *themePath, mappingPath: mappingPath, sourceOverride: *sourceName,
+			themePath: *themePath, mappingPath: mappingPath, sourceOverride: *sourceFlag,
 			engine: engine, conditioner: conditioner, player: player,
 			theme: th, mapping: m,
 		}
@@ -298,44 +286,58 @@ func warnUnbound(m mapping.Mapping, th theme.Theme) {
 	}
 }
 
-type sourceConfig struct {
-	serviceID, token string
-	promURL          string
-	promInterval     time.Duration
-	wikis            string
-	verbose          bool
-}
+// buildSource starts the source the mapping's (already validated) source
+// spec names.
+func buildSource(m mapping.Mapping, token string, verbose bool) (source.Source, error) {
+	spec, err := source.ParseSpec(m.Source)
+	if err != nil {
+		return nil, err
+	}
 
-func buildSource(m mapping.Mapping, cfg sourceConfig) (source.Source, error) {
-	switch m.Source {
+	switch spec.Kind {
 	case "simulate":
 		return &source.Simulation{}, nil
 
 	case "fastly":
-		if cfg.serviceID == "" || cfg.token == "" {
-			return nil, fmt.Errorf("the fastly source needs FASTLY_API_TOKEN and --service-id")
+		service := spec.Options["service"]
+		if service == "" {
+			service = os.Getenv("FASTLY_SERVICE_ID")
 		}
-		return fastly.Source{Client: fastly.NewClient(cfg.token, cfg.serviceID), Verbose: cfg.verbose}, nil
+		if service == "" || token == "" {
+			return nil, fmt.Errorf("the fastly source needs a service (fastly:service=SID or FASTLY_SERVICE_ID) and a token (--token or FASTLY_API_TOKEN)")
+		}
+		return fastly.Source{Client: fastly.NewClient(token, service), Verbose: verbose}, nil
 
 	case "prometheus":
+		url := spec.Target
+		if url == "" {
+			url = envOr("PROMETHEUS_URL", "http://localhost:9090")
+		}
+		interval := time.Second
+		if v, ok := spec.Options["interval"]; ok {
+			interval, err = time.ParseDuration(v)
+			if err != nil || interval <= 0 {
+				return nil, fmt.Errorf("prometheus interval %q isn't a duration such as 5s", v)
+			}
+		}
 		return prometheus.Source{
-			Client:   prometheus.NewClient(cfg.promURL),
+			Client:   prometheus.NewClient(url),
 			Queries:  m.Queries(),
-			Interval: cfg.promInterval,
-			Verbose:  cfg.verbose,
+			Interval: interval,
+			Verbose:  verbose,
 		}, nil
 
 	case "wikipedia":
 		var wikis []string
-		for _, w := range strings.Split(cfg.wikis, ",") {
+		for _, w := range strings.Split(spec.Options["wikis"], "+") {
 			if w = strings.TrimSpace(w); w != "" {
 				wikis = append(wikis, w)
 			}
 		}
-		return wikipedia.Source{Wikis: wikis, Verbose: cfg.verbose}, nil
+		return wikipedia.Source{Wikis: wikis, Verbose: verbose}, nil
 
 	default:
-		return nil, fmt.Errorf("source %q is not implemented yet", m.Source)
+		return nil, fmt.Errorf("source %q is not implemented yet", spec.Kind)
 	}
 }
 
@@ -428,17 +430,23 @@ func runSoundFontPresets(args []string) {
 	}
 }
 
-// removedFlags maps the output flags --output replaced to their new form.
+// removedFlags maps the flags --source and --output replaced to their new
+// form.
 var removedFlags = map[string]string{
-	"midi-out":      "--output midi-file:PATH",
-	"midi-port":     "--output midi:PORT",
-	"midi-virtual":  "--output midi-virtual:NAME",
-	"osc":           "--output osc:HOST:PORT",
-	"osc-prefix":    "--output osc:HOST:PORT,prefix=/PREFIX",
-	"sample-player": "--output without speakers (e.g. just --output osc:HOST:PORT)",
+	"simulate":            "--source simulate",
+	"service-id":          "--source fastly:service=SID",
+	"prometheus-url":      "--source prometheus:URL",
+	"prometheus-interval": "--source prometheus:interval=5s",
+	"wikipedia-wikis":     "--source wikipedia:wikis=enwiki+dewiki",
+	"midi-out":            "--output midi-file:PATH",
+	"midi-port":           "--output midi:PORT",
+	"midi-virtual":        "--output midi-virtual:NAME",
+	"osc":                 "--output osc:HOST:PORT",
+	"osc-prefix":          "--output osc:HOST:PORT,prefix=/PREFIX",
+	"sample-player":       "--output without speakers (e.g. just --output osc:HOST:PORT)",
 }
 
-// checkRemovedFlags points anyone using an old output flag at --output.
+// checkRemovedFlags points anyone using an old flag at its replacement.
 func checkRemovedFlags(args []string) error {
 	for _, arg := range args {
 		if arg == "--" {
@@ -727,7 +735,7 @@ func (r *reloader) reloadMapping() error {
 	if m.Source != r.mapping.Source {
 		return fmt.Errorf("source changed from %s to %s; restart to switch sources (keeping previous mapping)", r.mapping.Source, m.Source)
 	}
-	if m.Source == "prometheus" && !sameQueries(m, r.mapping) {
+	if strings.HasPrefix(m.Source, "prometheus") && !sameQueries(m, r.mapping) {
 		return fmt.Errorf("Prometheus queries changed; restart to apply them (keeping previous mapping)")
 	}
 	warnUnbound(m, r.theme)

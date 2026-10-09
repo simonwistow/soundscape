@@ -54,18 +54,19 @@ see [MIDI](#midi) below.
 
 The `--aliases` flag picks a mapping: a bare name means `mappings/<name>.yaml`, or give a path.
 The mapping names its source; `--source` overrides that (e.g. `--source simulate` to play a
-mapping against simulated data), and `--simulate` is shorthand for `--source simulate`.
+mapping against simulated data). A source is written like an output, `kind[:target][,option=value]`,
+and a mapping's `source:` line can use the same form.
 
-| Source       | Mapping                    | Needs                                                  |
-|--------------|----------------------------|--------------------------------------------------------|
-| `simulate`   | `mappings/simulate.yaml`   | nothing                                                |
-| `wikipedia`  | `mappings/wikipedia.yaml`  | internet access; optionally `--wikipedia-wikis enwiki` |
-| `prometheus` | `mappings/prometheus.yaml` | a Prometheus server: `--prometheus-url` / `PROMETHEUS_URL` (default `http://localhost:9090`) |
-| `fastly`     | `mappings/fastly.yaml`     | `FASTLY_API_TOKEN` and `--service-id` / `FASTLY_SERVICE_ID` |
+| `--source`                          | Mapping                    | Needs |
+|-------------------------------------|----------------------------|-------|
+| `simulate`                          | `mappings/simulate.yaml`   | nothing |
+| `wikipedia[:wikis=enwiki+dewiki]`   | `mappings/wikipedia.yaml`  | internet access; `wikis` limits it to some wikis |
+| `prometheus[:URL][,interval=5s]`    | `mappings/prometheus.yaml` | a Prometheus server; URL defaults to `PROMETHEUS_URL`, else `http://localhost:9090`; it's polled every second unless `interval` says otherwise |
+| `fastly[:service=SID]`              | `mappings/fastly.yaml`     | a token, from `--token` or `FASTLY_API_TOKEN`; the service defaults to `FASTLY_SERVICE_ID` |
 
-With no `--aliases`, the mapping defaults to the one named after `--source` (so
-`--source wikipedia` uses `mappings/wikipedia.yaml`); with neither, a configured Fastly service ID
-selects `fastly`, and otherwise the simulation is used.
+With no `--aliases`, the mapping defaults to the one named after `--source`'s kind (so
+`--source wikipedia:wikis=enwiki` uses `mappings/wikipedia.yaml`); with neither, a configured
+`FASTLY_SERVICE_ID` selects `fastly`, and otherwise the simulation is used.
 
 * **simulate**: deterministic synthetic telemetry, for developing themes without any data.
 * **wikipedia**: Wikimedia's public [recent-changes stream](https://stream.wikimedia.org/), with

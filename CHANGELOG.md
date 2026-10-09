@@ -19,6 +19,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `--source` takes a source the way `--output` takes an output, `kind[:target][,option=value]`: `simulate`, `wikipedia:wikis=enwiki+dewiki`, `prometheus:http://host:9090,interval=5s`, `fastly:service=SID`. A mapping's `source:` can be written the same way. It replaces `--simulate`, `--service-id`, `--prometheus-url`, `--prometheus-interval` and `--wikipedia-wikis`, which now stop with a pointer to their replacement. The Fastly token stays with `--token` or `FASTLY_API_TOKEN`, rather than in a source spec that shows up in logs.
 - `--output` says where the soundscape goes, and can be given more than once: `speakers` (the default), `midi:PORT`, `midi-virtual:NAME`, `midi-file:PATH`, `osc:HOST:PORT` and `console`, with options after commas (`osc:localhost:57120,prefix=/forest`). It replaces `--midi-port`, `--midi-virtual` and `--midi-out`, which now stop with a pointer to their replacement. Giving outputs without `speakers` leaves the samples unplayed, for another program to play.
 - The forest's birdsong is a little quieter.
 

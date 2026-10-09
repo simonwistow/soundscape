@@ -27,6 +27,10 @@ func TestValidate(t *testing.T) {
 	}{
 		{"ok", Mapping{Source: "fastly", Inputs: map[string]Input{"activity": {Metric: "requests"}}}, ""},
 		{"prometheus ok", Mapping{Source: "prometheus", Inputs: map[string]Input{"activity": {Query: "up"}}}, ""},
+		{"source spec ok", Mapping{Source: "fastly:service=abc", Inputs: map[string]Input{"activity": {Metric: "requests"}}}, ""},
+		{"prometheus spec ok", Mapping{Source: "prometheus:http://h:9090,interval=5s", Inputs: map[string]Input{"activity": {Query: "up"}}}, ""},
+		{"prometheus spec needs queries", Mapping{Source: "prometheus:http://h:9090", Inputs: map[string]Input{"a": {Metric: "x"}}}, "no query"},
+		{"bad source option", Mapping{Source: "fastly:region=eu", Inputs: map[string]Input{"a": {Metric: "x"}}}, `source: fastly:region=eu: unknown option "region"`},
 		{"no source", Mapping{Inputs: map[string]Input{"a": {Metric: "x"}}}, "no source"},
 		{"unknown source", Mapping{Source: "carrier-pigeon", Inputs: map[string]Input{"a": {Metric: "x"}}}, "unknown source"},
 		{"no inputs", Mapping{Source: "simulate"}, "no inputs"},
