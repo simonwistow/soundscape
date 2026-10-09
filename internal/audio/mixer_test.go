@@ -137,3 +137,23 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+func TestMixerCloseBeforeStart(t *testing.T) {
+	m := NewMixer(44100)
+	sink := &recordingSink{}
+	m.AddSink(sink)
+
+	done := make(chan error)
+	go func() { done <- m.Close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Close before Start hung")
+	}
+	if !sink.closed {
+		t.Error("sink not closed")
+	}
+}

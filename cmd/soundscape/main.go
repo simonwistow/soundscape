@@ -61,18 +61,23 @@ func main() {
 		wikis = flag.String("wikipedia-wikis", "", "comma-separated wiki IDs to count (e.g. enwiki,dewiki); default all Wikimedia wikis")
 
 		themePath = flag.String("theme", "themes/forest/theme.yaml", "theme YAML file")
-		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, for note/cc-output sounds")
-		midiOut   = flag.String("midi-out", "", "optional path to write a Standard MIDI File (.mid) of note/cc-output sounds")
-		midiPort  = flag.String("midi-port", "", "send note/cc-output sounds to this MIDI output port, live (see `soundscape midi-ports`)")
-		midiVirt  = flag.String("midi-virtual", "", "create a virtual MIDI port with this name and send note/cc-output sounds to it, live (macOS and Linux)")
-		oscAddr   = flag.String("osc", "", "send every event as an OSC message over UDP to this host:port, e.g. localhost:57120 for SuperCollider")
-		oscPrefix = flag.String("osc-prefix", "/soundscape", "the start of every OSC address")
-		samples   = flag.Bool("sample-player", true, "play sample/sample_loop sounds through the built-in sample player; false leaves them to other outputs, such as --osc")
+		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, to play note and cc sounds through the speakers")
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
 		watch     = flag.Bool("watch", true, "reload the theme and mapping files automatically when they change")
 	)
+	var outputs stringList
+	flag.Var(&outputs, "output", "where the soundscape goes; repeat for several:"+output.Help())
+	if err := checkRemovedFlags(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	flag.Parse()
+
+	specs, err := output.ParseSpecs(outputs)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	if *simulate {
 		*sourceName = "simulate"
@@ -113,15 +118,7 @@ func main() {
 	}
 	warnUnbound(m, th)
 
-	out, player, closeOutput, err := buildOutput(th, outputConfig{
-		soundFont:   *soundFont,
-		midiOut:     *midiOut,
-		midiPort:    *midiPort,
-		midiVirtual: *midiVirt,
-		osc:         *oscAddr,
-		oscPrefix:   *oscPrefix,
-		noSamples:   !*samples,
-	})
+	out, player, closeOutput, err := buildOutput(th, specs, *soundFont)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -340,31 +337,51 @@ func runSoundFontPresets(args []string) {
 	}
 }
 
-type outputConfig struct {
-	soundFont             string
-	midiOut               string
-	midiPort, midiVirtual string
-	osc, oscPrefix        string
-	noSamples             bool
+// removedFlags maps the output flags --output replaced to their new form.
+var removedFlags = map[string]string{
+	"midi-out":      "--output midi-file:PATH",
+	"midi-port":     "--output midi:PORT",
+	"midi-virtual":  "--output midi-virtual:NAME",
+	"osc":           "--output osc:HOST:PORT",
+	"osc-prefix":    "--output osc:HOST:PORT,prefix=/PREFIX",
+	"sample-player": "--output without speakers (e.g. just --output osc:HOST:PORT)",
 }
 
-// buildOutput assembles whichever output backends the theme and flags call
-// for: the WAV sample player is started automatically whenever the theme
-// references any sample_group (no flag needed, so a sample-only theme is
-// self-contained), the SoundFont backend is added if --soundfont is given,
-// the MIDI file backend if --midi-out is given, a live MIDI port if
-// --midi-port or --midi-virtual is, and OSC if --osc is. The sample player
-// can be turned off, for when another program plays the samples from OSC
-// instead. A theme can use several of these at
-// once (e.g. sampled birds alongside a SoundFont-driven instrument). With
-// none, falls back to the Console backend so the theme can still be
-// exercised with no audio at all.
-func buildOutput(th theme.Theme, cfg outputConfig) (output.Output, *sampler.Player, func(), error) {
+// checkRemovedFlags points anyone using an old output flag at --output.
+func checkRemovedFlags(args []string) error {
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		name, _, _ := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		if !strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if replacement, ok := removedFlags[name]; ok {
+			return fmt.Errorf("%s has been replaced: use %s", arg, replacement)
+		}
+	}
+	return nil
+}
+
+// stringList is a flag that can be given more than once.
+type stringList []string
+
+func (l *stringList) String() string     { return strings.Join(*l, " ") }
+func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
+
+// buildOutput starts the outputs the --output specs ask for. Speakers get
+// one mix of the sample player, when the theme has samples, and the
+// SoundFont synth, when one is given. The other kinds take events directly.
+// With nothing that takes events (a note-only theme played to the speakers
+// with no SoundFont, say) it falls back to printing them, so a theme can
+// still be exercised with no audio at all.
+func buildOutput(th theme.Theme, specs []output.Spec, soundFont string) (output.Output, *sampler.Player, func(), error) {
 	var outs []output.Output
 	var closers []func()
 	var player *sampler.Player
 
-	// Close whatever was already started if a later backend fails.
+	// Close whatever was already started if a later output fails.
 	fail := func(err error) (output.Output, *sampler.Player, func(), error) {
 		for _, c := range closers {
 			c()
@@ -372,40 +389,106 @@ func buildOutput(th theme.Theme, cfg outputConfig) (output.Output, *sampler.Play
 		return nil, nil, nil, err
 	}
 
-	// The sample player and the SoundFont synth render into one mix, which
-	// owns the audio device.
-	var sources []audio.Source
-	if groups := sampleGroups(th); len(groups) > 0 && !cfg.noSamples {
-		p := sampler.NewPlayer(sampleRate)
-		for _, dir := range groups {
-			if err := p.LoadGroup(dir, dir); err != nil {
-				return nil, nil, nil, fmt.Errorf("loading sample group %s: %w", dir, err)
+	var audioSpecs []output.Spec
+	for _, spec := range specs {
+		switch spec.Kind {
+		case "speakers":
+			audioSpecs = append(audioSpecs, spec)
+
+		case "console":
+			outs = append(outs, output.NewConsole())
+
+		case "midi-file":
+			path := spec.Target
+			m := midi.NewVirtualOutput(path)
+			outs = append(outs, m)
+			closers = append(closers, func() {
+				if err := m.Close(); err != nil {
+					log.Printf("midi: failed to write %s: %v", path, err)
+					return
+				}
+				log.Printf("midi: wrote %s", path)
+			})
+
+		case "midi", "midi-virtual":
+			var live *midi.LiveOutput
+			var err error
+			if spec.Kind == "midi" {
+				live, err = midi.OpenPort(spec.Target)
+			} else {
+				live, err = midi.OpenVirtual(spec.Target)
+			}
+			if err != nil {
+				return fail(err)
+			}
+			log.Printf("midi: sending to %s", live)
+			outs = append(outs, live)
+			closers = append(closers, func() {
+				if err := live.Close(); err != nil {
+					log.Printf("midi: closing %s: %v", live, err)
+				}
+			})
+
+		case "osc":
+			prefix := "/soundscape"
+			if p, ok := spec.Options["prefix"]; ok {
+				prefix = p
+			}
+			o, err := osc.Dial(spec.Target, prefix)
+			if err != nil {
+				return fail(err)
+			}
+			log.Printf("osc: sending to %s", o)
+			outs = append(outs, o)
+			closers = append(closers, func() { _ = o.Close() })
+		}
+	}
+
+	if soundFont != "" && len(audioSpecs) == 0 {
+		return fail(fmt.Errorf("--soundfont plays through the speakers, but there's no --output speakers"))
+	}
+
+	// The sample player and the SoundFont synth render into one mix for the
+	// speakers. Without speakers, sample sounds are left to the other
+	// outputs (another program might play them from OSC).
+	groups := sampleGroups(th)
+	if len(audioSpecs) > 0 && (len(groups) > 0 || soundFont != "") {
+		mixer := audio.NewMixer(sampleRate)
+
+		if len(groups) > 0 {
+			p := sampler.NewPlayer(sampleRate)
+			for _, dir := range groups {
+				if err := p.LoadGroup(dir, dir); err != nil {
+					return fail(fmt.Errorf("loading sample group %s: %w", dir, err))
+				}
+			}
+			player = p
+			outs = append(outs, p)
+			mixer.AddSource(p)
+		}
+
+		if soundFont != "" {
+			sf, err := synth.NewSoundFontOutput(soundFont, sampleRate)
+			if err != nil {
+				return fail(fmt.Errorf("starting SoundFont output: %w", err))
+			}
+			outs = append(outs, sf)
+			mixer.AddSource(sf)
+		}
+
+		// Sinks open last, so nothing above has to close them on failure.
+		for _, spec := range audioSpecs {
+			switch spec.Kind {
+			case "speakers":
+				speakers, err := audio.NewSpeakers(sampleRate)
+				if err != nil {
+					_ = mixer.Close()
+					return fail(fmt.Errorf("opening the audio device: %w", err))
+				}
+				mixer.AddSink(speakers)
 			}
 		}
-		player = p
-		outs = append(outs, p)
-		sources = append(sources, p)
-	}
 
-	if cfg.soundFont != "" {
-		sf, err := synth.NewSoundFontOutput(cfg.soundFont, sampleRate)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("starting SoundFont output: %w", err)
-		}
-		outs = append(outs, sf)
-		sources = append(sources, sf)
-	}
-
-	if len(sources) > 0 {
-		speakers, err := audio.NewSpeakers(sampleRate)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("opening the audio device: %w", err)
-		}
-		mixer := audio.NewMixer(sampleRate)
-		for _, src := range sources {
-			mixer.AddSource(src)
-		}
-		mixer.AddSink(speakers)
 		mixer.Start()
 		closers = append(closers, func() {
 			if err := mixer.Close(); err != nil {
@@ -414,59 +497,17 @@ func buildOutput(th theme.Theme, cfg outputConfig) (output.Output, *sampler.Play
 		})
 	}
 
-	if cfg.midiOut != "" {
-		m := midi.NewVirtualOutput(cfg.midiOut)
-		outs = append(outs, m)
-		closers = append(closers, func() {
-			if err := m.Close(); err != nil {
-				log.Printf("midi: failed to write %s: %v", cfg.midiOut, err)
-				return
-			}
-			log.Printf("midi: wrote %s", cfg.midiOut)
-		})
-	}
-
-	if cfg.midiPort != "" && cfg.midiVirtual != "" {
-		return fail(fmt.Errorf("use --midi-port or --midi-virtual, not both"))
-	}
-	if cfg.midiPort != "" || cfg.midiVirtual != "" {
-		var live *midi.LiveOutput
-		var err error
-		if cfg.midiPort != "" {
-			live, err = midi.OpenPort(cfg.midiPort)
-		} else {
-			live, err = midi.OpenVirtual(cfg.midiVirtual)
-		}
-		if err != nil {
-			return fail(err)
-		}
-		log.Printf("midi: sending to %s", live)
-		outs = append(outs, live)
-		closers = append(closers, func() {
-			if err := live.Close(); err != nil {
-				log.Printf("midi: closing %s: %v", live, err)
-			}
-		})
-	}
-
-	if cfg.osc != "" {
-		o, err := osc.Dial(cfg.osc, cfg.oscPrefix)
-		if err != nil {
-			return fail(err)
-		}
-		log.Printf("osc: sending to %s", o)
-		outs = append(outs, o)
-		closers = append(closers, func() { _ = o.Close() })
-	}
-
 	if len(outs) == 0 {
 		outs = append(outs, output.NewConsole())
 	}
 
+	var once sync.Once
 	closeAll := func() {
-		for _, c := range closers {
-			c()
-		}
+		once.Do(func() {
+			for _, c := range closers {
+				c()
+			}
+		})
 	}
 
 	if len(outs) == 1 {

@@ -124,6 +124,23 @@ An input the mapping doesn't provide reads as 0 (with a warning at startup).
 A theme is a directory: `theme.yaml` plus a `samples/` folder, so it's self-contained wherever
 it's run from (`sample_group` paths resolve relative to the theme file).
 
+## Outputs
+
+`--output` says where the soundscape goes. With none it plays through the speakers; give it more
+than once to send it to several places at once:
+
+| `--output` | |
+|---|---|
+| `speakers` | plays sample sounds, and note sounds with `--soundfont`, through the audio device |
+| `midi:PORT` | sends note and cc sounds to a MIDI port, live |
+| `midi-virtual:NAME` | creates a virtual MIDI port and sends note and cc sounds to it, live |
+| `midi-file:PATH` | writes note and cc sounds to a Standard MIDI File |
+| `osc:HOST:PORT[,prefix=/PREFIX]` | sends every event as an OSC message over UDP |
+| `console` | prints every event |
+
+Options follow the target after commas, as `key=value`. Without `speakers` (say, with just
+`--output osc:...`) nothing is played here, so another program can play the samples instead.
+
 ## MIDI
 
 A theme's `note`/`cc`-output sounds can be sent, live, to anything that plays MIDI: a hardware
@@ -131,7 +148,7 @@ synth, a DAW, or a software instrument. No hardware is needed.
 
 Create a virtual MIDI port called `soundscape`, which other software sees as a MIDI input:
 
-    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --midi-virtual soundscape
+    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --output midi-virtual:soundscape
 
 On macOS, GarageBand plays it with no setup: create an empty project with a Software Instrument
 track, and it plays whatever arrives on any MIDI input. On Linux, connect the port to a synth such
@@ -143,7 +160,7 @@ it in Audio MIDI Setup). A name that matches no port exactly can be part of one 
 finds `IAC Driver Bus 1`:
 
     go run ./cmd/soundscape midi-ports
-    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --midi-port IAC
+    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --output midi:IAC
 
 Each sound's `channel` (0-15) becomes its MIDI channel (1-16 in most software), so a DAW can give
 each sound its own instrument.
@@ -165,9 +182,13 @@ A program belongs to a MIDI channel, so sounds that share a channel share an ins
 
 Or record them as a Standard MIDI File (finalized on exit, including Ctrl+C):
 
-    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --midi-out session.mid
+    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --output midi-file:session.mid
 
-Live MIDI, a SoundFont and a MIDI file can all be used at once, alongside a theme's samples.
+Live MIDI, a SoundFont and a MIDI file can all be used at once, alongside a theme's samples:
+the SoundFont plays through `--output speakers`, the default, so add it back when giving others:
+
+    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --soundfont /path/to/your.sf2 \
+        --output speakers --output midi-file:session.mid
 
 ## OSC
 
@@ -175,7 +196,7 @@ Every event, from every kind of sound, can be sent as an [Open Sound Control](ht
 message over UDP, for SuperCollider, Max, Pure Data, TouchDesigner or anything else that speaks
 OSC to play, or react to, as it likes:
 
-    go run ./cmd/soundscape --theme themes/forest/theme.yaml --osc localhost:57120
+    go run ./cmd/soundscape --theme themes/forest/theme.yaml --output osc:localhost:57120
 
 Each message is addressed by the sound that made it, so a receiver can pick sounds out with one
 pattern match:
@@ -190,17 +211,17 @@ pattern match:
 
 A sample's group is its `sample_group` directory's name (e.g. `birds`) and its pitch a playback
 ratio (1 is as recorded); pan runs from -1 (left) to 1 (right). A loop's message comes every tick
-while it plays, with its current gain, so it doubles as a continuous control. `--osc-prefix`
-changes `/soundscape`.
+while it plays, with its current gain, so it doubles as a continuous control. The `prefix` option
+changes `/soundscape`, e.g. `--output osc:localhost:57120,prefix=/forest`.
 
-The built-in sample player still plays a theme's samples alongside OSC. If the receiver plays them
-itself, turn the player off with `--sample-player=false`.
+With just `--output osc:...`, the samples are left to the receiver. To hear them through the
+speakers as well, add `--output speakers`.
 
 `examples/osc/supercollider.scd` is a receiver to start from: it plays a theme's samples in
 SuperCollider, from the OSC messages, much as the built-in player does.
 
     /Applications/SuperCollider.app/Contents/MacOS/sclang examples/osc/supercollider.scd themes/forest/samples
-    go run ./cmd/soundscape --theme themes/forest/theme.yaml --osc localhost:57120 --sample-player=false
+    go run ./cmd/soundscape --theme themes/forest/theme.yaml --output osc:localhost:57120
 
 ## More options
 
@@ -262,7 +283,7 @@ real recordings are ready:
     internal/scheduler   Poisson event-rate scheduler
     internal/event       abstract sound-event model (Note/Sample/Control)
     internal/output      sound output abstraction (incl. Multi fan-out)
-    internal/audio       shared renderer->Oto ring-buffer plumbing
+    internal/audio       the mixer: sources (sampler, synth) into sinks (speakers)
     internal/synth       SoundFont output backend
     internal/sampler     WAV sample-player output backend
     internal/midi        MIDI output backends: live (RtMidi) and Standard MIDI File
@@ -279,14 +300,10 @@ A `source.Source` just emits a timestamped `map[string]float64` each tick; a
 backend. To add a source, implement `Run(ctx, emit)` and add a case to `cmd/soundscape`'s
 `buildSource`.
 
-`cmd/soundscape` picks output backends automatically:
-
-* the sample player starts whenever the theme references any `sample_group`, with no flag needed
-* the SoundFont backend starts if `--soundfont` is given
-* the MIDI file backend starts if `--midi-out` is given
-* live MIDI output starts if `--midi-port` or `--midi-virtual` is given
-
-Any combination of these can run at once via `output.Multi`. With none, it falls back to the
+`cmd/soundscape` starts a backend for each `--output` (parsed by `output.ParseSpecs`). The
+speakers get one `audio.Mixer`: the sample player, whenever the theme references any
+`sample_group`, and the SoundFont synth, if `--soundfont` is given, render into it. Every
+backend that takes events runs at once via `output.Multi`. With none, it falls back to the
 text-only Console backend.
 
 ## Next steps

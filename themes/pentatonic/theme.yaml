@@ -1,8 +1,9 @@
 name: pentatonic
 
 # A note-only theme: no samples, just MIDI notes, so it needs somewhere to
-# send them. Play it into a synth or DAW with --midi-port or --midi-virtual,
-# through a SoundFont with --soundfont, or capture it with --midi-out. Uses
+# send them. Play it into a synth or DAW with --output midi:PORT or
+# --output midi-virtual:NAME, through a SoundFont with --soundfont, or capture
+# it with --output midi-file:PATH. Uses
 # the conventional inputs (see mappings/ for what feeds them):
 #   activity -> a sparse melody in C major pentatonic, busier as it rises
 #   flow     -> a low bass pulse on the root and fifth

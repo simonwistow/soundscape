@@ -4,7 +4,7 @@
 // with its own sample player off:
 //
 //   sclang examples/osc/supercollider.scd themes/forest/samples
-//   soundscape --theme themes/forest/theme.yaml --osc localhost:57120 --sample-player=false
+//   soundscape --theme themes/forest/theme.yaml --output osc:localhost:57120
 //
 // (sclang is inside SuperCollider.app on macOS:
 // /Applications/SuperCollider.app/Contents/MacOS/sclang.) Or open it in the

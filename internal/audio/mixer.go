@@ -42,6 +42,7 @@ type Mixer struct {
 	sources    []Source
 	sinks      []Sink
 
+	started   bool
 	stop      chan struct{}
 	done      chan struct{}
 	closeOnce sync.Once
@@ -61,6 +62,7 @@ func (m *Mixer) AddSource(s Source) { m.sources = append(m.sources, s) }
 func (m *Mixer) AddSink(s Sink)     { m.sinks = append(m.sinks, s) }
 
 func (m *Mixer) Start() {
+	m.started = true
 	go m.run()
 }
 
@@ -125,10 +127,13 @@ func paced(sinks []Sink) bool {
 
 // Close stops the mix and then closes every sink, so a file sink gets to
 // finish its file. It returns any errors from the sinks, including one that
-// failed mid-mix. It's safe to call more than once.
+// failed mid-mix. It's safe to call more than once, and before Start.
 func (m *Mixer) Close() error {
 	m.closeOnce.Do(func() {
 		close(m.stop)
+		if !m.started {
+			close(m.done)
+		}
 
 		// The loop notices stop within a block, unless a speakers sink is
 		// stuck waiting on a stalled device; closing that sink releases
