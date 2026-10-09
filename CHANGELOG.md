@@ -21,7 +21,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- The sample player and SoundFont synth no longer drift behind: they rendered audio faster than it was played, so the backlog grew by most of a second every second (sounds lagged further behind the telemetry the longer it ran, and memory grew with it). The audio device now paces them, about 46 ms ahead.
+- The sample player and SoundFont synth no longer drift behind: they rendered audio faster than it was played, so the backlog grew by most of a second every second (sounds lagged further behind the telemetry the longer it ran, and memory grew with it). The audio device now paces them, and a sound is heard about a tenth of a second after it happens (it was half a second at best).
+- A theme with both samples and note sounds can now play them together through `--soundfont`; it used to stop with "oto: context is already created". The sample player and the synth now share one mix.
 
 ## [0.2.0] - 2026-10-08
 

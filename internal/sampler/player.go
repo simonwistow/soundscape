@@ -5,16 +5,11 @@
 package sampler
 
 import (
-	"encoding/binary"
 	"fmt"
-	"math"
 	"math/rand"
 	"sync"
 	"time"
 
-	"github.com/ebitengine/oto/v3"
-
-	"github.com/simonwistow/soundscape/internal/audio"
 	"github.com/simonwistow/soundscape/internal/event"
 )
 
@@ -24,13 +19,6 @@ import (
 // favours "some natural variation" over exact fidelity to every trigger.
 const maxOneShotVoices = 32
 
-const renderFrames = 512
-
-// pipeBlocks is how many rendered blocks may queue for the audio device:
-// enough to ride out scheduling hiccups (about 46 ms), little enough that a
-// new event is heard promptly.
-const pipeBlocks = 4
-
 type Player struct {
 	mu         sync.Mutex
 	sampleRate int
@@ -39,39 +27,17 @@ type Player struct {
 	loops      map[string]*voice
 	rng        *rand.Rand
 	nextID     uint64
-
-	pipe   *audio.Pipe
-	player *oto.Player
 }
 
-// NewPlayer creates a sample player backend at the given sample rate (44100
-// is a reasonable default) and starts its audio pipeline.
-func NewPlayer(sampleRate int) (*Player, error) {
-	ctx, ready, err := oto.NewContext(&oto.NewContextOptions{
-		SampleRate:   sampleRate,
-		ChannelCount: 2,
-		Format:       oto.FormatFloat32LE,
-	})
-	if err != nil {
-		return nil, err
-	}
-	<-ready
-
-	pipe := audio.NewPipe(pipeBlocks * renderFrames * 2 * 4)
-	otoPlayer := ctx.NewPlayer(pipe)
-	otoPlayer.Play()
-
-	p := &Player{
+// NewPlayer creates a sample player at the given sample rate (44100 is a
+// reasonable default). It's an audio.Source: add it to a mixer to hear it.
+func NewPlayer(sampleRate int) *Player {
+	return &Player{
 		sampleRate: sampleRate,
 		groups:     make(map[string]*Group),
 		loops:      make(map[string]*voice),
 		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
-		pipe:       pipe,
-		player:     otoPlayer,
 	}
-
-	go p.renderLoop()
-	return p, nil
 }
 
 // LoadGroup loads every .wav file in dir and registers it under name so
@@ -150,54 +116,27 @@ func (p *Player) addOneShot(v *voice) {
 	p.oneShots = append(p.oneShots, v)
 }
 
-func (p *Player) renderLoop() {
-	buf := make([]float32, renderFrames*2)
-	bytesBuf := make([]byte, renderFrames*2*4)
+// Render adds the next len(buf)/2 frames of every playing voice into buf,
+// as interleaved stereo.
+func (p *Player) Render(buf []float32) {
+	frames := len(buf) / 2
 
-	for {
-		for i := range buf {
-			buf[i] = 0
-		}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-		p.mu.Lock()
-		for _, v := range p.oneShots {
-			v.render(buf, renderFrames, p.sampleRate)
-		}
-		live := p.oneShots[:0]
-		for _, v := range p.oneShots {
-			if !v.finished {
-				live = append(live, v)
-			}
-		}
-		p.oneShots = live
-
-		for _, v := range p.loops {
-			v.render(buf, renderFrames, p.sampleRate)
-		}
-		p.mu.Unlock()
-
-		for i, sample := range buf {
-			if sample > 1 {
-				sample = 1
-			} else if sample < -1 {
-				sample = -1
-			}
-			binary.LittleEndian.PutUint32(bytesBuf[i*4:], math.Float32bits(sample))
-		}
-
-		// Blocks while the pipe is full, so the audio device paces this loop.
-		if _, err := p.pipe.Write(bytesBuf); err != nil {
-			return
+	for _, v := range p.oneShots {
+		v.render(buf, frames, p.sampleRate)
+	}
+	live := p.oneShots[:0]
+	for _, v := range p.oneShots {
+		if !v.finished {
+			live = append(live, v)
 		}
 	}
-}
+	p.oneShots = live
 
-func (p *Player) Close() {
-	if p.pipe != nil {
-		p.pipe.Close()
-	}
-	if p.player != nil {
-		_ = p.player.Close()
+	for _, v := range p.loops {
+		v.render(buf, frames, p.sampleRate)
 	}
 }
 

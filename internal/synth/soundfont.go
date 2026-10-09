@@ -1,29 +1,28 @@
 package synth
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"sort"
 	"sync"
 	"time"
 
-	"github.com/ebitengine/oto/v3"
 	"github.com/sinshu/go-meltysynth/meltysynth"
 
-	"github.com/simonwistow/soundscape/internal/audio"
 	"github.com/simonwistow/soundscape/internal/event"
 )
 
+// SoundFontOutput plays note, cc and program events on a SoundFont. It's an
+// audio.Source: add it to a mixer to hear it.
 type SoundFontOutput struct {
-	mu     sync.Mutex
-	synth  *meltysynth.Synthesizer
-	player *oto.Player
-	pipe   *audio.Pipe
+	mu          sync.Mutex
+	synth       *meltysynth.Synthesizer
+	left, right []float32
 }
 
-func NewSoundFontOutput(path string) (*SoundFontOutput, error) {
+// NewSoundFontOutput loads the SoundFont at path into a synth running at
+// sampleRate.
+func NewSoundFontOutput(path string, sampleRate int) (*SoundFontOutput, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -35,57 +34,32 @@ func NewSoundFontOutput(path string) (*SoundFontOutput, error) {
 		return nil, err
 	}
 
-	settings := meltysynth.NewSynthesizerSettings(44100)
+	settings := meltysynth.NewSynthesizerSettings(int32(sampleRate))
 	s, err := meltysynth.NewSynthesizer(sf, settings)
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, ready, err := oto.NewContext(&oto.NewContextOptions{
-		SampleRate:   44100,
-		ChannelCount: 2,
-		Format:       oto.FormatFloat32LE,
-	})
-	if err != nil {
-		return nil, err
-	}
-	<-ready
-
-	pipe := audio.NewPipe(4 * 512 * 8)
-	player := ctx.NewPlayer(pipe)
-	player.Play()
-
-	out := &SoundFontOutput{
-		synth:  s,
-		player: player,
-		pipe:   pipe,
-	}
-
-	go out.renderLoop()
-	return out, nil
+	return &SoundFontOutput{synth: s}, nil
 }
 
-func (s *SoundFontOutput) renderLoop() {
-	const frames = 512
-	left := make([]float32, frames)
-	right := make([]float32, frames)
+// Render adds the synth's next len(buf)/2 frames into buf, as interleaved
+// stereo.
+func (s *SoundFontOutput) Render(buf []float32) {
+	frames := len(buf) / 2
+	if len(s.left) < frames {
+		s.left = make([]float32, frames)
+		s.right = make([]float32, frames)
+	}
+	left, right := s.left[:frames], s.right[:frames]
 
-	for {
-		s.mu.Lock()
-		s.synth.Render(left, right)
-		s.mu.Unlock()
+	s.mu.Lock()
+	s.synth.Render(left, right)
+	s.mu.Unlock()
 
-		buf := bytes.NewBuffer(make([]byte, 0, frames*8))
-		for i := 0; i < frames; i++ {
-			_ = binary.Write(buf, binary.LittleEndian, left[i])
-			_ = binary.Write(buf, binary.LittleEndian, right[i])
-		}
-
-		// Blocks while the pipe is full (about 46 ms queued), so the
-		// audio device paces this loop.
-		if _, err := s.pipe.Write(buf.Bytes()); err != nil {
-			return
-		}
+	for i := range frames {
+		buf[2*i] += left[i]
+		buf[2*i+1] += right[i]
 	}
 }
 
@@ -157,13 +131,4 @@ func Presets(path string) ([]Preset, error) {
 		return presets[i].Program < presets[j].Program
 	})
 	return presets, nil
-}
-
-func (s *SoundFontOutput) Close() {
-	if s.pipe != nil {
-		s.pipe.Close()
-	}
-	if s.player != nil {
-		_ = s.player.Close()
-	}
 }

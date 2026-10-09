@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/simonwistow/soundscape/internal/audio"
 	"github.com/simonwistow/soundscape/internal/fastly"
 	"github.com/simonwistow/soundscape/internal/mapping"
 	"github.com/simonwistow/soundscape/internal/midi"
@@ -363,22 +364,6 @@ func buildOutput(th theme.Theme, cfg outputConfig) (output.Output, *sampler.Play
 	var closers []func()
 	var player *sampler.Player
 
-	if groups := sampleGroups(th); len(groups) > 0 && !cfg.noSamples {
-		p, err := sampler.NewPlayer(sampleRate)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("starting sample player: %w", err)
-		}
-		for _, dir := range groups {
-			if err := p.LoadGroup(dir, dir); err != nil {
-				p.Close()
-				return nil, nil, nil, fmt.Errorf("loading sample group %s: %w", dir, err)
-			}
-		}
-		player = p
-		outs = append(outs, p)
-		closers = append(closers, p.Close)
-	}
-
 	// Close whatever was already started if a later backend fails.
 	fail := func(err error) (output.Output, *sampler.Player, func(), error) {
 		for _, c := range closers {
@@ -387,13 +372,46 @@ func buildOutput(th theme.Theme, cfg outputConfig) (output.Output, *sampler.Play
 		return nil, nil, nil, err
 	}
 
+	// The sample player and the SoundFont synth render into one mix, which
+	// owns the audio device.
+	var sources []audio.Source
+	if groups := sampleGroups(th); len(groups) > 0 && !cfg.noSamples {
+		p := sampler.NewPlayer(sampleRate)
+		for _, dir := range groups {
+			if err := p.LoadGroup(dir, dir); err != nil {
+				return nil, nil, nil, fmt.Errorf("loading sample group %s: %w", dir, err)
+			}
+		}
+		player = p
+		outs = append(outs, p)
+		sources = append(sources, p)
+	}
+
 	if cfg.soundFont != "" {
-		sf, err := synth.NewSoundFontOutput(cfg.soundFont)
+		sf, err := synth.NewSoundFontOutput(cfg.soundFont, sampleRate)
 		if err != nil {
-			return fail(fmt.Errorf("starting SoundFont output: %w", err))
+			return nil, nil, nil, fmt.Errorf("starting SoundFont output: %w", err)
 		}
 		outs = append(outs, sf)
-		closers = append(closers, sf.Close)
+		sources = append(sources, sf)
+	}
+
+	if len(sources) > 0 {
+		speakers, err := audio.NewSpeakers(sampleRate)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("opening the audio device: %w", err)
+		}
+		mixer := audio.NewMixer(sampleRate)
+		for _, src := range sources {
+			mixer.AddSource(src)
+		}
+		mixer.AddSink(speakers)
+		mixer.Start()
+		closers = append(closers, func() {
+			if err := mixer.Close(); err != nil {
+				log.Printf("audio: %v", err)
+			}
+		})
 	}
 
 	if cfg.midiOut != "" {
