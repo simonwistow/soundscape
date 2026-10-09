@@ -31,6 +31,13 @@ type Stepper interface {
 	Step() (timestamp int64, metrics map[string]float64, ok bool)
 }
 
+// Ender is a Stepper that reports whether it will run out, as a recording
+// that doesn't loop will. One that will can be rendered to its end without
+// a --duration.
+type Ender interface {
+	Ends() bool
+}
+
 // Simulation generates deterministic synthetic telemetry on a deliberately
 // slow quiet -> busy -> quiet cycle, so a theme can be developed without
 // any real data source. Its metric names and scales match Fastly's;

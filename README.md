@@ -63,6 +63,7 @@ and a mapping's `source:` line can use the same form.
 | `wikipedia[:wikis=enwiki+dewiki]`   | `mappings/wikipedia.yaml`  | internet access; `wikis` limits it to some wikis |
 | `prometheus[:URL][,interval=5s]`    | `mappings/prometheus.yaml` | a Prometheus server; URL defaults to `PROMETHEUS_URL`, else `http://localhost:9090`; it's polled every second unless `interval` says otherwise |
 | `fastly[:service=SID]`              | `mappings/fastly.yaml`     | a token, from `--token` or `FASTLY_API_TOKEN`; the service defaults to `FASTLY_SERVICE_ID` |
+| `file:PATH[,format=F][,loop=true]`  | whichever fits its metrics, by `--aliases` | a recording; see [Replaying recordings](#replaying-recordings) |
 
 With no `--aliases`, the mapping defaults to the one named after `--source`'s kind (so
 `--source wikipedia:wikis=enwiki` uses `mappings/wikipedia.yaml`); with neither, a configured
@@ -78,6 +79,34 @@ With no `--aliases`, the mapping defaults to the one named after `--source`'s ki
   bare Prometheus. Copy it and point the queries at your own metrics.
 * **fastly**: Fastly's real-time analytics API
   (`https://rt.fastly.com/v1/channel/<service_id>/ts/<timestamp>`), one-second records.
+* **file**: replays recorded telemetry; see below.
+
+### Replaying recordings
+
+`--source file:PATH` replays a recording of a source's metrics, through whichever mapping fits
+them, so a period can be heard again, or rendered:
+
+    go run ./cmd/soundscape --aliases fastly --source file:monday.csv
+
+It reads four formats, told apart by the extension, or by `format=` for any other:
+
+| `format=`    | Extensions                    | Looks like |
+|--------------|-------------------------------|------------|
+| `csv`        | `.csv`                        | a header row, then `timestamp,requests,errors` rows; the time column is `timestamp`, `time` or `ts`, else the first |
+| `jsonl`      | `.jsonl`, `.ndjson`, `.json`  | `{"ts": 1696000000, "requests": 4500}` per line; nested objects become `a.b` |
+| `influx`     | `.lp`, `.influx`, `.line`     | InfluxDB line protocol: `fastly,service=x requests=4500 1696000000000000000`, a series per field, named `fastly.requests` |
+| `prometheus` | `.prom`, `.om`, `.metrics`    | Prometheus or OpenMetrics text, as used for backfilling: `requests{code="200"} 4500 1696000000000` |
+
+Every sample needs a timestamp: Unix seconds, milliseconds, microseconds or nanoseconds (told
+apart by size), or, in CSV and JSON, an RFC 3339 date. A recording plays a tick a second; a
+series keeps its last value for up to five minutes, so data scraped every 15 seconds plays
+smoothly, and a longer gap is skipped. A series with labels or tags can be named exactly, as
+`requests{code="200"}` (labels sorted), or as plain `requests`, summed across its labels.
+Prometheus counters become per-second rates, as `rate()` would make them.
+
+Without an output that plays live, a recording renders as fast as it can, start to finish, with
+no `--duration` needed. `loop=true` plays it again and again, for an installation; then
+`--duration` says how much to render.
 
 ## Themes and mappings
 
@@ -164,13 +193,14 @@ LAME.
 A recording holds what the speakers play: sample sounds, and note sounds with `--soundfont`. For
 the notes themselves, use `midi-file:`.
 
-`--duration` stops a run after that much soundscape. When the source can be replayed (for now,
-`simulate`) and every output is offline (`file`, `midi-file`, `console`), it doesn't wait for the
+`--duration` stops a run after that much soundscape. When the source can be replayed
+(`simulate`, or a `file`) and every output is offline (`file`, `midi-file`, `console`), it doesn't wait for the
 clock: it renders as fast as it can, about a hundred times real time for the forest.
 
     go run ./cmd/soundscape --theme themes/forest/theme.yaml --duration 1h --seed 42 --output file:forest.mp3
 
-With `--seed`, a render comes out the same, to the bit, every time. With a live source (Fastly,
+With `--seed`, a render comes out the same, to the bit, every time. A recording that doesn't
+loop renders to its end without a `--duration`. With a live source (Fastly,
 Prometheus, Wikipedia) or a live output, `--duration` runs in real time and then stops.
 
 ## MIDI
@@ -310,6 +340,7 @@ real recordings are ready:
 ## Architecture
 
     internal/source      Source interface + the built-in simulation
+    internal/telemetry   recorded telemetry: CSV, JSON Lines, Influx and Prometheus readers
     internal/wikipedia   Wikimedia recent-changes stream source
     internal/prometheus  Prometheus query source
     internal/fastly      Fastly real-time API source

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,6 +28,7 @@ import (
 	"github.com/simonwistow/soundscape/internal/sampler"
 	"github.com/simonwistow/soundscape/internal/source"
 	"github.com/simonwistow/soundscape/internal/synth"
+	"github.com/simonwistow/soundscape/internal/telemetry"
 	"github.com/simonwistow/soundscape/internal/theme"
 	"github.com/simonwistow/soundscape/internal/wikipedia"
 )
@@ -61,7 +63,7 @@ func main() {
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
 		watch     = flag.Bool("watch", true, "reload the theme and mapping files automatically when they change")
-		duration  = flag.Duration("duration", 0, "stop after this much soundscape (e.g. 10m; 0 = run until stopped). With a source that can be replayed (simulate) and only offline outputs (file, midi-file, console), it renders as fast as it can instead of in real time")
+		duration  = flag.Duration("duration", 0, "stop after this much soundscape (e.g. 10m; 0 = run until stopped, or a recording ends). With a source that can be replayed (simulate, file) and only offline outputs (file, midi-file, console), it renders as fast as it can instead of in real time")
 	)
 	var outputs stringList
 	flag.Var(&outputs, "output", "where the soundscape goes; repeat for several:"+output.Help())
@@ -85,6 +87,9 @@ func main() {
 		switch {
 		case *sourceFlag != "":
 			kind, _, _ := strings.Cut(*sourceFlag, ":")
+			if kind == "file" {
+				log.Fatalf("--source %s: say whose metrics the file holds with --aliases, e.g. --aliases fastly", *sourceFlag)
+			}
 			*aliases = kind
 		case os.Getenv("FASTLY_SERVICE_ID") != "":
 			*aliases = "fastly"
@@ -111,11 +116,14 @@ func main() {
 	}
 	warnUnbound(m, th)
 
-	// Render faster than real time when there's an end, the source can be
-	// stepped, and nothing has to keep pace with the world. Everything
-	// then times itself by a virtual clock that the render moves along.
+	// Render faster than real time when there's an end (a --duration, or
+	// a recording that doesn't loop), the source can be stepped, and
+	// nothing has to keep pace with the world. Everything then times
+	// itself by a virtual clock that the render moves along.
 	stepper, steppable := src.(source.Stepper)
-	fast := *duration > 0 && steppable && offline(specs)
+	ender, _ := src.(source.Ender)
+	ends := *duration > 0 || (ender != nil && ender.Ends())
+	fast := ends && steppable && offline(specs)
 	var clk clock.Clock = clock.Real{}
 	var virtual *clock.Virtual
 	if fast {
@@ -199,14 +207,21 @@ func offline(specs []output.Spec) bool {
 	return true
 }
 
-// renderFast renders duration of soundscape as fast as it can, logging its
-// progress, until it's done or Ctrl+C stops it early. The caller then
-// finishes the outputs.
+// renderFast renders duration of soundscape (0: until the source ends) as
+// fast as it can, logging its progress, until it's done or Ctrl+C stops it
+// early. The caller then finishes the outputs.
 func renderFast(src source.Stepper, process func(int64, map[string]float64), clk *clock.Virtual, mixer *audio.Mixer, duration time.Duration) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf("rendering %v, faster than real time", duration)
+	of := ""
+	if duration > 0 {
+		of = fmt.Sprintf(" of %v", duration)
+		log.Printf("rendering %v, faster than real time", duration)
+	} else {
+		duration = 100 * 365 * 24 * time.Hour // the source will end first
+		log.Printf("rendering to the end of the source, faster than real time")
+	}
 	began := time.Now()
 	lastLog := began
 	rendered := render.Run(ctx, render.Config{
@@ -219,7 +234,7 @@ func renderFast(src source.Stepper, process func(int64, map[string]float64), clk
 		Progress: func(done time.Duration) {
 			if time.Since(lastLog) >= 5*time.Second {
 				lastLog = time.Now()
-				log.Printf("rendered %v of %v", done.Round(time.Second), duration)
+				log.Printf("rendered %v%s", done.Round(time.Second), of)
 			}
 		},
 	})
@@ -230,7 +245,7 @@ func renderFast(src source.Stepper, process func(int64, map[string]float64), clk
 		speed = fmt.Sprintf(", %.0fx real time", rendered.Seconds()/took.Seconds())
 	}
 	if ctx.Err() != nil {
-		log.Printf("stopped after rendering %v of %v", rendered.Round(time.Second), duration)
+		log.Printf("stopped after rendering %v%s", rendered.Round(time.Second), of)
 		return
 	}
 	if took < time.Second {
@@ -335,6 +350,21 @@ func buildSource(m mapping.Mapping, token string, verbose bool) (source.Source, 
 			}
 		}
 		return wikipedia.Source{Wikis: wikis, Verbose: verbose}, nil
+
+	case "file":
+		loop := false
+		if v, ok := spec.Options["loop"]; ok {
+			loop, err = strconv.ParseBool(v)
+			if err != nil {
+				return nil, fmt.Errorf("file loop=%q: want true or false", v)
+			}
+		}
+		recording, err := telemetry.Read(spec.Target, spec.Options["format"])
+		if err != nil {
+			return nil, err
+		}
+		log.Printf("file: %s: %s", spec.Target, recording.Describe())
+		return &telemetry.Source{Recording: recording, Loop: loop, Verbose: verbose}, nil
 
 	default:
 		return nil, fmt.Errorf("source %q is not implemented yet", spec.Kind)

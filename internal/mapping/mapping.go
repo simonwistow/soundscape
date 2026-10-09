@@ -35,7 +35,7 @@ const Dir = "mappings"
 
 type Mapping struct {
 	// Source is a source spec, as --source takes: wikipedia,
-	// fastly:service=SID and so on.
+	// fastly:service=SID, file:monday.jsonl and so on.
 	Source string           `yaml:"source"`
 	Inputs map[string]Input `yaml:"inputs"`
 }
@@ -101,6 +101,12 @@ func Validate(m Mapping) []error {
 			}
 			if in.Metric != "" {
 				errs = append(errs, fmt.Errorf("%s: prometheus inputs use query, not metric", name))
+			}
+		case "file":
+			// A recording of a Prometheus run holds each query's result
+			// under its input's name, so a query stands in for a metric.
+			if in.Metric == "" && strings.TrimSpace(in.Query) == "" {
+				errs = append(errs, fmt.Errorf("%s: input has no metric", name))
 			}
 		default:
 			if in.Metric == "" {
@@ -179,7 +185,7 @@ func (c *Conditioner) Apply(raw map[string]float64) map[string]float64 {
 
 	out := make(map[string]float64, len(c.mapping.Inputs))
 	for name, in := range c.mapping.Inputs {
-		// Prometheus results come keyed by input name.
+		// Prometheus results, live or recorded, come keyed by input name.
 		key := in.Metric
 		if key == "" {
 			key = name
