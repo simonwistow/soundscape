@@ -131,7 +131,7 @@ func main() {
 		clk = virtual
 	}
 
-	out, player, mixer, closeOutput, err := buildOutput(th, specs, outputOptions{
+	outs, err := buildOutput(th, specs, outputOptions{
 		soundFont: *soundFont,
 		clock:     clk,
 		seed:      *seed,
@@ -140,22 +140,24 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	closeOutput := outs.close
 	defer closeOutput()
 
 	var engine *theme.Engine
 	if *seed != 0 {
-		engine = theme.NewEngineWithSeed(th, out, *seed)
+		engine = theme.NewEngineWithSeed(th, outs.events, *seed)
 	} else {
-		engine = theme.NewEngine(th, out)
+		engine = theme.NewEngine(th, outs.events)
 	}
 	engine.UseClock(clk)
 	conditioner := mapping.NewConditioner(m)
 	process := func(ts int64, raw map[string]float64) {
+		outs.tick(ts, raw)
 		engine.Process(ts, conditioner.Apply(raw))
 	}
 
 	if fast {
-		renderFast(stepper, process, virtual, mixer, *duration)
+		renderFast(stepper, process, virtual, outs.mixer, *duration)
 		return
 	}
 
@@ -174,7 +176,7 @@ func main() {
 	if *watch {
 		r := &reloader{
 			themePath: *themePath, mappingPath: mappingPath, sourceOverride: *sourceFlag,
-			engine: engine, conditioner: conditioner, player: player,
+			engine: engine, conditioner: conditioner, player: outs.player,
 			theme: th, mapping: m,
 		}
 		go watchFile(*themePath, r.reloadTheme)
@@ -199,7 +201,7 @@ func main() {
 func offline(specs []output.Spec) bool {
 	for _, spec := range specs {
 		switch spec.Kind {
-		case "file", "midi-file", "console":
+		case "file", "midi-file", "console", "telemetry":
 		default:
 			return false
 		}
@@ -508,14 +510,28 @@ type outputOptions struct {
 	start bool
 }
 
+// outputs is everything buildOutput started.
+type outputs struct {
+	// events takes the theme engine's events.
+	events output.Output
+	// player is the sample player, if any, for hot reloads to update.
+	player *sampler.Player
+	// mixer mixes the speakers and audio files, if there are any.
+	mixer *audio.Mixer
+	// tick records a tick's raw metrics, for --output telemetry.
+	tick func(timestamp int64, metrics map[string]float64)
+	// close finishes everything; it's safe to call more than once.
+	close func()
+}
+
 // buildOutput starts the outputs the --output specs ask for. Speakers and
 // files get one mix of the sample player, when the theme has samples, and
-// the SoundFont synth, when one is given; that mixer is returned too, nil if
-// there isn't one. The other kinds take events directly.
-// With nothing that takes events (a note-only theme played to the speakers
-// with no SoundFont, say) it falls back to printing them, so a theme can
-// still be exercised with no audio at all.
-func buildOutput(th theme.Theme, specs []output.Spec, opts outputOptions) (output.Output, *sampler.Player, *audio.Mixer, func(), error) {
+// the SoundFont synth, when one is given. Telemetry files get the raw
+// metrics. The other kinds take events directly. With nothing that takes
+// events (a note-only theme played to the speakers with no SoundFont, say)
+// it falls back to printing them, so a theme can still be exercised with
+// no audio at all.
+func buildOutput(th theme.Theme, specs []output.Spec, opts outputOptions) (*outputs, error) {
 	var outs []output.Output
 	var closers []func()
 	var player *sampler.Player
@@ -523,12 +539,18 @@ func buildOutput(th theme.Theme, specs []output.Spec, opts outputOptions) (outpu
 	soundFont := opts.soundFont
 
 	// Close whatever was already started if a later output fails.
-	fail := func(err error) (output.Output, *sampler.Player, *audio.Mixer, func(), error) {
+	fail := func(err error) (*outputs, error) {
 		for _, c := range closers {
 			c()
 		}
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
+
+	// Telemetry files are written from the source's goroutine and closed
+	// from a signal handler's, so they share a lock.
+	var telemetryMu sync.Mutex
+	var recorders []*telemetry.Writer
+	recordingTelemetry := false
 
 	var audioSpecs []output.Spec
 	for _, spec := range specs {
@@ -544,6 +566,25 @@ func buildOutput(th theme.Theme, specs []output.Spec, opts outputOptions) (outpu
 
 		case "console":
 			outs = append(outs, output.NewConsole())
+
+		case "telemetry":
+			recordingTelemetry = true
+			w, err := telemetry.CreateWriter(spec.Target, spec.Options["format"])
+			if err != nil {
+				return fail(err)
+			}
+			log.Printf("recording telemetry to %s", spec.Target)
+			recorders = append(recorders, w)
+			path := spec.Target
+			closers = append(closers, func() {
+				telemetryMu.Lock()
+				defer telemetryMu.Unlock()
+				if err := w.Close(); err != nil {
+					log.Printf("telemetry: %v", err)
+					return
+				}
+				log.Printf("telemetry: wrote %s", path)
+			})
 
 		case "midi-file":
 			path := spec.Target
@@ -669,8 +710,32 @@ func buildOutput(th theme.Theme, specs []output.Spec, opts outputOptions) (outpu
 		})
 	}
 
-	if len(outs) == 0 {
-		outs = append(outs, output.NewConsole())
+	var events output.Output
+	switch {
+	case len(outs) == 0 && recordingTelemetry:
+		events = output.Discard{} // just recording telemetry
+	case len(outs) == 0:
+		events = output.NewConsole()
+	case len(outs) == 1:
+		events = outs[0]
+	default:
+		events = output.NewMulti(outs...)
+	}
+
+	// A recorder that fails stops, with a message, and the rest carry on.
+	failed := make(map[*telemetry.Writer]bool)
+	tick := func(ts int64, raw map[string]float64) {
+		telemetryMu.Lock()
+		defer telemetryMu.Unlock()
+		for _, w := range recorders {
+			if failed[w] {
+				continue
+			}
+			if err := w.Write(ts, raw); err != nil {
+				log.Printf("telemetry: %v (stopped recording it)", err)
+				failed[w] = true
+			}
+		}
 	}
 
 	var once sync.Once
@@ -682,10 +747,7 @@ func buildOutput(th theme.Theme, specs []output.Spec, opts outputOptions) (outpu
 		})
 	}
 
-	if len(outs) == 1 {
-		return outs[0], player, mixer, closeAll, nil
-	}
-	return output.NewMulti(outs...), player, mixer, closeAll, nil
+	return &outputs{events: events, player: player, mixer: mixer, tick: tick, close: closeAll}, nil
 }
 
 // watchFile polls path once a second and calls apply when it changes.

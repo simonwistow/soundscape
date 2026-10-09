@@ -88,6 +88,15 @@ them, so a period can be heard again, or rendered:
 
     go run ./cmd/soundscape --aliases fastly --source file:monday.csv
 
+Make one from any source with `--output telemetry:`, which writes each tick's raw metrics, before
+the mapping, as JSON Lines or CSV. Alongside the speakers, or on its own to record quietly:
+
+    go run ./cmd/soundscape --aliases wikipedia --output telemetry:monday.jsonl
+
+Once a metric has turned up, every later tick records it, as 0 when the source left it out (as
+Wikipedia does with whatever didn't happen that second), so a recording replays exactly as the run
+played; with `--seed`, to the bit. A CSV gains a column when a new metric turns up.
+
 It reads four formats, told apart by the extension, or by `format=` for any other:
 
 | `format=`    | Extensions                    | Looks like |
@@ -167,6 +176,7 @@ than once to send it to several places at once:
 | `midi-virtual:NAME` | creates a virtual MIDI port and sends note and cc sounds to it, live |
 | `midi-file:PATH` | writes note and cc sounds to a Standard MIDI File |
 | `osc:HOST:PORT[,prefix=/PREFIX]` | sends every event as an OSC message over UDP |
+| `telemetry:PATH[,format=jsonl\|csv]` | records the source's raw metrics, for `--source file:` to replay |
 | `console` | prints every event |
 
 Options follow the target after commas, as `key=value`. Without `speakers` (say, with just

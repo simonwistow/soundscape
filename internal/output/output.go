@@ -26,3 +26,8 @@ func (c *Console) Send(e event.Event) error {
 	fmt.Println(e.Describe())
 	return nil
 }
+
+// Discard drops every event, for a run that only records telemetry.
+type Discard struct{}
+
+func (Discard) Send(event.Event) error { return nil }

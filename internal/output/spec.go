@@ -17,6 +17,7 @@ var outputs = spec.Set{Flag: "--output", Noun: "output", Kinds: []spec.Kind{
 	{Name: "midi", Target: "PORT", Help: "send note and cc sounds to a MIDI port, live (soundscape midi-ports lists them)"},
 	{Name: "midi-virtual", Target: "NAME", Help: "create a virtual MIDI port and send note and cc sounds to it, live (macOS and Linux)"},
 	{Name: "osc", Target: "HOST:PORT", Options: []string{"prefix"}, Help: "send every event as an OSC message over UDP; prefix starts every address (default /soundscape)"},
+	{Name: "telemetry", Target: "PATH", Options: []string{"format"}, Help: "record the source's raw metrics each tick to a .jsonl or .csv file (or format=jsonl|csv), for --source file to replay"},
 	{Name: "console", Help: "print every event"},
 }}
 
@@ -46,7 +47,7 @@ func ParseSpecs(values []string) ([]Spec, error) {
 			return nil, fmt.Errorf("--output %s given twice", spec.Kind)
 		}
 		seen[spec.Kind] = true
-		if spec.Kind == "file" || spec.Kind == "midi-file" {
+		if spec.Kind == "file" || spec.Kind == "midi-file" || spec.Kind == "telemetry" {
 			if seen["path:"+spec.Target] {
 				return nil, fmt.Errorf("--output %s: more than one output writes to %s", v, spec.Target)
 			}
