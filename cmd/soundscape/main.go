@@ -20,6 +20,7 @@ import (
 	"github.com/simonwistow/soundscape/internal/osc"
 	"github.com/simonwistow/soundscape/internal/output"
 	"github.com/simonwistow/soundscape/internal/prometheus"
+	"github.com/simonwistow/soundscape/internal/record"
 	"github.com/simonwistow/soundscape/internal/sampler"
 	"github.com/simonwistow/soundscape/internal/source"
 	"github.com/simonwistow/soundscape/internal/synth"
@@ -61,7 +62,7 @@ func main() {
 		wikis = flag.String("wikipedia-wikis", "", "comma-separated wiki IDs to count (e.g. enwiki,dewiki); default all Wikimedia wikis")
 
 		themePath = flag.String("theme", "themes/forest/theme.yaml", "theme YAML file")
-		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, to play note and cc sounds through the speakers")
+		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, to play note and cc sounds through the speakers and into recordings")
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
 		watch     = flag.Bool("watch", true, "reload the theme and mapping files automatically when they change")
@@ -370,9 +371,9 @@ type stringList []string
 func (l *stringList) String() string     { return strings.Join(*l, " ") }
 func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
 
-// buildOutput starts the outputs the --output specs ask for. Speakers get
-// one mix of the sample player, when the theme has samples, and the
-// SoundFont synth, when one is given. The other kinds take events directly.
+// buildOutput starts the outputs the --output specs ask for. Speakers and
+// files get one mix of the sample player, when the theme has samples, and
+// the SoundFont synth, when one is given. The other kinds take events directly.
 // With nothing that takes events (a note-only theme played to the speakers
 // with no SoundFont, say) it falls back to printing them, so a theme can
 // still be exercised with no audio at all.
@@ -393,6 +394,12 @@ func buildOutput(th theme.Theme, specs []output.Spec, soundFont string) (output.
 	for _, spec := range specs {
 		switch spec.Kind {
 		case "speakers":
+			audioSpecs = append(audioSpecs, spec)
+
+		case "file":
+			if err := record.Check(spec.Target, sampleRate, spec.Options); err != nil {
+				return fail(err)
+			}
 			audioSpecs = append(audioSpecs, spec)
 
 		case "console":
@@ -445,13 +452,20 @@ func buildOutput(th theme.Theme, specs []output.Spec, soundFont string) (output.
 	}
 
 	if soundFont != "" && len(audioSpecs) == 0 {
-		return fail(fmt.Errorf("--soundfont plays through the speakers, but there's no --output speakers"))
+		return fail(fmt.Errorf("--soundfont plays through the speakers or into a file, but there's no --output speakers or file"))
 	}
 
 	// The sample player and the SoundFont synth render into one mix for the
-	// speakers. Without speakers, sample sounds are left to the other
-	// outputs (another program might play them from OSC).
+	// speakers and files. Without either, sample sounds are left to the
+	// other outputs (another program might play them from OSC).
 	groups := sampleGroups(th)
+	if len(groups) == 0 && soundFont == "" {
+		for _, spec := range audioSpecs {
+			if spec.Kind == "file" {
+				return fail(fmt.Errorf("--output file:%s: nothing to record: the theme has no sample sounds, and note sounds need --soundfont", spec.Target))
+			}
+		}
+	}
 	if len(audioSpecs) > 0 && (len(groups) > 0 || soundFont != "") {
 		mixer := audio.NewMixer(sampleRate)
 
@@ -477,22 +491,38 @@ func buildOutput(th theme.Theme, specs []output.Spec, soundFont string) (output.
 		}
 
 		// Sinks open last, so nothing above has to close them on failure.
+		// Without speakers, the mixer keeps time by the clock.
+		var files []string
 		for _, spec := range audioSpecs {
+			var sink audio.Sink
+			var err error
 			switch spec.Kind {
 			case "speakers":
-				speakers, err := audio.NewSpeakers(sampleRate)
+				sink, err = audio.NewSpeakers(sampleRate)
 				if err != nil {
-					_ = mixer.Close()
-					return fail(fmt.Errorf("opening the audio device: %w", err))
+					err = fmt.Errorf("opening the audio device: %w", err)
 				}
-				mixer.AddSink(speakers)
+			case "file":
+				sink, err = record.Create(spec.Target, sampleRate, spec.Options)
+				files = append(files, spec.Target)
+				if err == nil {
+					log.Printf("recording to %s", spec.Target)
+				}
 			}
+			if err != nil {
+				_ = mixer.Close()
+				return fail(err)
+			}
+			mixer.AddSink(sink)
 		}
 
 		mixer.Start()
 		closers = append(closers, func() {
 			if err := mixer.Close(); err != nil {
 				log.Printf("audio: %v", err)
+			}
+			for _, f := range files {
+				log.Printf("wrote %s", f)
 			}
 		})
 	}

@@ -31,6 +31,7 @@ type kind struct {
 
 var kinds = []kind{
 	{name: "speakers", help: "play sample sounds, and note sounds with --soundfont, through the audio device (the default)"},
+	{name: "file", target: "PATH", options: []string{"bitrate"}, help: "record what the speakers play to a .wav or .mp3 file, even without speakers; bitrate is the MP3's, in kbps (default 256)"},
 	{name: "midi-file", target: "PATH", help: "write note and cc sounds to a Standard MIDI File"},
 	{name: "midi", target: "PORT", help: "send note and cc sounds to a MIDI port, live (soundscape midi-ports lists them)"},
 	{name: "midi-virtual", target: "NAME", help: "create a virtual MIDI port and send note and cc sounds to it, live (macOS and Linux)"},
@@ -121,6 +122,12 @@ func ParseSpecs(values []string) ([]Spec, error) {
 			return nil, fmt.Errorf("--output %s given twice", spec.Kind)
 		}
 		seen[spec.Kind] = true
+		if spec.Kind == "file" || spec.Kind == "midi-file" {
+			if seen["path:"+spec.Target] {
+				return nil, fmt.Errorf("--output %s: more than one output writes to %s", v, spec.Target)
+			}
+			seen["path:"+spec.Target] = true
+		}
 		specs = append(specs, spec)
 	}
 	return specs, nil

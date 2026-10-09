@@ -3,6 +3,7 @@ module github.com/simonwistow/soundscape
 go 1.24.2
 
 require (
+	github.com/braheezy/shine-mp3 v0.2.0
 	github.com/ebitengine/oto/v3 v3.4.0
 	github.com/sinshu/go-meltysynth v0.0.0-20230205031334-05d311382fc4
 	gitlab.com/gomidi/midi/v2 v2.3.24

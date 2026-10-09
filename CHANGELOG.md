@@ -13,6 +13,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `type: crowd` sounds gather a crowd whose `size` follows the input, people drifting in and out over a few seconds. Each person has their own voice, place and distance, and calls `call_rate` times a second; an optional `rate` gives outbursts, when everyone calls at once and then tails off. The market theme's shoppers are now a crowd.
 - A theme's `weather` makes an input of its own from one of the mapping's: it builds up towards that input's level over `build` seconds, takes `clear` seconds to die away, and `gusts` around its level, so a storm has a slow life of its own rather than following the telemetry tick by tick. The forest theme has a storm on `trouble`, with light and heavy rain and thunder.
 
+- Recording. `--output file:forest.mp3` (or `.wav`) records the soundscape as it plays: with `--output speakers` as well to hear it, or silently, in real time, without. MP3 is 256 kbps unless `bitrate` says otherwise (`file:forest.mp3,bitrate=192`), encoded in pure Go, so the binary still needs nothing else installed.
 - OSC output. `--output osc:host:port` sends every event as an OSC message over UDP, addressed by the sound that made it (e.g. `/soundscape/birds/sample`, with its group, pitch, gain, pan and duration), for SuperCollider, Max, Pure Data and the like. Its `prefix` option changes `/soundscape` (`--output osc:localhost:57120,prefix=/forest`). `examples/osc/supercollider.scd` plays a theme's samples in SuperCollider from them.
 
 ### Changed

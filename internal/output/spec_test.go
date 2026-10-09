@@ -14,6 +14,8 @@ func TestParseSpec(t *testing.T) {
 		{"speakers", Spec{Kind: "speakers"}},
 		{"console", Spec{Kind: "console"}},
 		{"midi-file:session.mid", Spec{Kind: "midi-file", Target: "session.mid"}},
+		{"file:storm.mp3", Spec{Kind: "file", Target: "storm.mp3"}},
+		{"file:storm.mp3,bitrate=192", Spec{Kind: "file", Target: "storm.mp3", Options: map[string]string{"bitrate": "192"}}},
 		{"midi:IAC Driver Bus 1", Spec{Kind: "midi", Target: "IAC Driver Bus 1"}},
 		// ALSA port names have colons of their own.
 		{"midi:Midi Through:Midi Through Port-0 14:0", Spec{Kind: "midi", Target: "Midi Through:Midi Through Port-0 14:0"}},
@@ -68,6 +70,18 @@ func TestParseSpecsAllowsSeveralOfAKind(t *testing.T) {
 	}
 	if len(specs) != 3 {
 		t.Errorf("got %d specs, want 3", len(specs))
+	}
+}
+
+func TestParseSpecsRejectsTwoOutputsToOneFile(t *testing.T) {
+	if _, err := ParseSpecs([]string{"file:a.wav", "file:a.wav,bitrate=1"}); err == nil {
+		t.Error("two file outputs to a.wav: no error")
+	}
+	if _, err := ParseSpecs([]string{"file:a.mid", "midi-file:a.mid"}); err == nil {
+		t.Error("file and midi-file to a.mid: no error")
+	}
+	if _, err := ParseSpecs([]string{"file:a.wav", "file:a.mp3"}); err != nil {
+		t.Errorf("a.wav and a.mp3: %v", err)
 	}
 }
 

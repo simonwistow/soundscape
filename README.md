@@ -132,6 +132,7 @@ than once to send it to several places at once:
 | `--output` | |
 |---|---|
 | `speakers` | plays sample sounds, and note sounds with `--soundfont`, through the audio device |
+| `file:PATH[,bitrate=KBPS]` | records what the speakers would play to a `.wav` or `.mp3` file |
 | `midi:PORT` | sends note and cc sounds to a MIDI port, live |
 | `midi-virtual:NAME` | creates a virtual MIDI port and sends note and cc sounds to it, live |
 | `midi-file:PATH` | writes note and cc sounds to a Standard MIDI File |
@@ -140,6 +141,27 @@ than once to send it to several places at once:
 
 Options follow the target after commas, as `key=value`. Without `speakers` (say, with just
 `--output osc:...`) nothing is played here, so another program can play the samples instead.
+
+## Recording
+
+`file:` records the soundscape as it plays, WAV or MP3 by the file's extension. Give
+`speakers` too, to hear it while it records:
+
+    go run ./cmd/soundscape --theme themes/forest/theme.yaml --output speakers --output file:forest.mp3
+
+Without `speakers` it records silently, in real time, which needs no sound card, so it can run
+on a server. Several files can be written at once. Stop with Ctrl+C; the files are finished on
+the way out.
+
+WAV is 16-bit stereo at 44.1 kHz; a WAV can hold about 6.7 hours, after which it stops (and says
+so) while the rest carries on. MP3 is constant bitrate, 256 kbps unless the `bitrate` option says
+otherwise (`file:forest.mp3,bitrate=192`; 32 to 320). It's encoded in pure Go with
+[shine](https://github.com/braheezy/shine-mp3), a simple encoder: at 256 kbps it was
+indistinguishable from LAME on the forest storm, but lower bitrates cost it more than they would
+LAME.
+
+A recording holds what the speakers play: sample sounds, and note sounds with `--soundfont`. For
+the notes themselves, use `midi-file:`.
 
 ## MIDI
 
@@ -283,7 +305,8 @@ real recordings are ready:
     internal/scheduler   Poisson event-rate scheduler
     internal/event       abstract sound-event model (Note/Sample/Control)
     internal/output      sound output abstraction (incl. Multi fan-out)
-    internal/audio       the mixer: sources (sampler, synth) into sinks (speakers)
+    internal/audio       the mixer: sources (sampler, synth) into sinks (speakers, files)
+    internal/record      WAV and MP3 file sinks
     internal/synth       SoundFont output backend
     internal/sampler     WAV sample-player output backend
     internal/midi        MIDI output backends: live (RtMidi) and Standard MIDI File
@@ -301,7 +324,7 @@ backend. To add a source, implement `Run(ctx, emit)` and add a case to `cmd/soun
 `buildSource`.
 
 `cmd/soundscape` starts a backend for each `--output` (parsed by `output.ParseSpecs`). The
-speakers get one `audio.Mixer`: the sample player, whenever the theme references any
+speakers and files get one `audio.Mixer`: the sample player, whenever the theme references any
 `sample_group`, and the SoundFont synth, if `--soundfont` is given, render into it. Every
 backend that takes events runs at once via `output.Multi`. With none, it falls back to the
 text-only Console backend.
