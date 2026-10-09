@@ -51,7 +51,7 @@ func NewSoundFontOutput(path string) (*SoundFontOutput, error) {
 	}
 	<-ready
 
-	pipe := audio.NewPipe()
+	pipe := audio.NewPipe(4 * 512 * 8)
 	player := ctx.NewPlayer(pipe)
 	player.Play()
 
@@ -61,11 +61,11 @@ func NewSoundFontOutput(path string) (*SoundFontOutput, error) {
 		pipe:   pipe,
 	}
 
-	go out.renderLoop(settings.SampleRate)
+	go out.renderLoop()
 	return out, nil
 }
 
-func (s *SoundFontOutput) renderLoop(sampleRate int32) {
+func (s *SoundFontOutput) renderLoop() {
 	const frames = 512
 	left := make([]float32, frames)
 	right := make([]float32, frames)
@@ -81,13 +81,11 @@ func (s *SoundFontOutput) renderLoop(sampleRate int32) {
 			_ = binary.Write(buf, binary.LittleEndian, right[i])
 		}
 
+		// Blocks while the pipe is full (about 46 ms queued), so the
+		// audio device paces this loop.
 		if _, err := s.pipe.Write(buf.Bytes()); err != nil {
 			return
 		}
-
-		// Keep a modest amount of audio buffered without allowing the
-		// renderer to run arbitrarily far ahead of the audio device.
-		time.Sleep(time.Duration(float64(frames) / float64(sampleRate) * float64(time.Second) / 2))
 	}
 }
 

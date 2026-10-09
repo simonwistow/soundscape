@@ -26,6 +26,11 @@ const maxOneShotVoices = 32
 
 const renderFrames = 512
 
+// pipeBlocks is how many rendered blocks may queue for the audio device:
+// enough to ride out scheduling hiccups (about 46 ms), little enough that a
+// new event is heard promptly.
+const pipeBlocks = 4
+
 type Player struct {
 	mu         sync.Mutex
 	sampleRate int
@@ -52,7 +57,7 @@ func NewPlayer(sampleRate int) (*Player, error) {
 	}
 	<-ready
 
-	pipe := audio.NewPipe()
+	pipe := audio.NewPipe(pipeBlocks * renderFrames * 2 * 4)
 	otoPlayer := ctx.NewPlayer(pipe)
 	otoPlayer.Play()
 
@@ -180,11 +185,10 @@ func (p *Player) renderLoop() {
 			binary.LittleEndian.PutUint32(bytesBuf[i*4:], math.Float32bits(sample))
 		}
 
+		// Blocks while the pipe is full, so the audio device paces this loop.
 		if _, err := p.pipe.Write(bytesBuf); err != nil {
 			return
 		}
-
-		time.Sleep(time.Duration(float64(renderFrames) / float64(p.sampleRate) * float64(time.Second) / 2))
 	}
 }
 

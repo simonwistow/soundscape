@@ -19,6 +19,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The forest's birdsong is a little quieter.
 
+### Fixed
+
+- The sample player and SoundFont synth no longer drift behind: they rendered audio faster than it was played, so the backlog grew by most of a second every second (sounds lagged further behind the telemetry the longer it ran, and memory grew with it). The audio device now paces them, about 46 ms ahead.
+
 ## [0.2.0] - 2026-10-08
 
 ### Added
