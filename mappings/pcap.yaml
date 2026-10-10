@@ -1,0 +1,29 @@
+# Packet captures -> theme inputs.
+#
+# For --source file:capture.pcap (or .pcapng). The capture's packets are
+# counted into per-second metrics: packets and bytes, the same for tcp_,
+# udp_, icmp_ and other_, tcp_syn, tcp_rst and tcp_fin (connections opened,
+# reset and closed), hosts (distinct sources), flows (distinct
+# conversations), dns_queries and dns_failures. The ranges suit a busy
+# home or office network; tune normalise to yours.
+
+inputs:
+  activity:
+    metric: flows
+    smoothing: 5
+    normalise: { min: 0, max: 200 }
+
+  flow:
+    metric: bytes
+    smoothing: 10
+    normalise: { min: 1000, max: 10000000 }
+
+  trouble:
+    metric: tcp_rst
+    smoothing: 4
+    normalise: { min: 0, max: 20 }
+
+  quirks:
+    metric: dns_failures
+    smoothing: 2
+    normalise: { min: 0, max: 5 }

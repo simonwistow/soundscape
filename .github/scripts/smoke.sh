@@ -19,6 +19,7 @@ for theme in themes/*/theme.yaml; do
     name=$(basename "$mapping" .yaml)
     case $name in
       apache) source=file:access.log ;;
+      pcap) source=file:capture.pcap ;;
       *) source=$name ;;
     esac
     "$bin" validate --source "$source" --mappings "$mapping" "$theme"

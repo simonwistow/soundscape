@@ -259,8 +259,8 @@ func buildVersion() string {
 // pickSource works out the source and the mapping file: --source, else
 // fastly if FASTLY_SERVICE_ID is set, else simulate; and --mappings, else
 // the mapping named after the source. A recording's metrics could be
-// anyone's, so a file source needs --mappings, unless it's an access log,
-// whose metrics soundscape names.
+// anyone's, so a file source needs --mappings, unless it's an access log
+// or a packet capture, whose metrics soundscape names.
 func pickSource(sourceFlag, mappingsFlag string) (source.Spec, string, error) {
 	if sourceFlag == "" {
 		sourceFlag = "simulate"
@@ -281,7 +281,7 @@ func pickSource(sourceFlag, mappingsFlag string) (source.Spec, string, error) {
 			if format == "" {
 				format = telemetry.FormatOf(spec.Target)
 			}
-			if format != "apache" {
+			if format != "apache" && format != "pcap" {
 				return source.Spec{}, "", fmt.Errorf("--source %s: say whose metrics the file holds with --mappings, e.g. --mappings fastly", sourceFlag)
 			}
 			mappingsFlag = format

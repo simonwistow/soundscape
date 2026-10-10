@@ -64,7 +64,7 @@ path, e.g. to play the Wikipedia mapping against simulated data with `--source s
 | `wikipedia[:wikis=enwiki+dewiki]`   | `mappings/wikipedia.yaml`  | internet access; `wikis` limits it to some wikis |
 | `prometheus[:URL][,interval=5s]`    | `mappings/prometheus.yaml` | a Prometheus server; URL defaults to `PROMETHEUS_URL`, else `http://localhost:9090`; it's polled every second unless `interval` says otherwise |
 | `fastly[:service=SID]`              | `mappings/fastly.yaml`     | a token, from `--token` or `FASTLY_API_TOKEN`; the service defaults to `FASTLY_SERVICE_ID` |
-| `file:PATH[,format=F][,loop=true]`  | whichever fits its metrics, by `--mappings`; `apache` for an access log | a recording or a log; see [Replaying recordings](#replaying-recordings) |
+| `file:PATH[,format=F][,loop=true]`  | whichever fits its metrics, by `--mappings`; `apache` for an access log, `pcap` for a capture | a recording, a log or a capture; see [Replaying recordings](#replaying-recordings) |
 
 With no `--source`, a configured `FASTLY_SERVICE_ID` selects `fastly`, and otherwise the
 simulation is used.
@@ -106,6 +106,7 @@ It reads four formats, told apart by the extension, or by `format=` for any othe
 | `influx`     | `.lp`, `.influx`, `.line`     | InfluxDB line protocol: `fastly,service=x requests=4500 1696000000000000000`, a series per field, named `fastly.requests` |
 | `prometheus` | `.prom`, `.om`, `.metrics`    | Prometheus or OpenMetrics text, as used for backfilling: `requests{code="200"} 4500 1696000000000` |
 | `apache`     | `.log`                        | a web server's access log; see below |
+| `pcap`       | `.pcap`, `.pcapng`, `.cap`    | a packet capture, from tcpdump or Wireshark; see below |
 
 Every sample needs a timestamp: Unix seconds, milliseconds, microseconds or nanoseconds (told
 apart by size), or, in CSV and JSON, an RFC 3339 date. A recording plays a tick a second; a
@@ -135,6 +136,19 @@ It needs a time (`%t`, in the default format) and a status (`%>s` or `%s`), and 
 for clients, `%r` or `%m` for methods, `%b`, `%B` or `%O` for bytes, and `%D`, `%T` or `%{ms}T`
 for response times; anything else is matched and ignored. The `logformat` can't contain a comma.
 Lines that don't fit are skipped (the count is logged), unless most don't.
+
+#### Packet captures
+
+A packet capture, pcap or pcapng, from tcpdump, Wireshark and the like, is counted the same way:
+`packets` and `bytes`, the same for `tcp_`, `udp_`, `icmp_` and `other_` (as in `tcp_bytes`),
+`tcp_syn`, `tcp_rst` and `tcp_fin` (connections opened, reset and closed), `hosts` (distinct
+sources), `flows` (distinct conversations), `dns_queries` and `dns_failures` (answers saying a name
+doesn't exist, or the server failed). `mappings/pcap.yaml` plays them, and is the default for a
+capture: more conversations, more birdsong; bytes, the river; resets, a storm; failed lookups, the
+woodpecker.
+
+    sudo tcpdump -i en0 -w lunch.pcap        # Ctrl+C to stop
+    go run ./cmd/soundscape --source file:lunch.pcap
 
 Without an output that plays live, a recording renders as fast as it can, start to finish, with
 no `--duration` needed. `loop=true` plays it again and again, for an installation; then
@@ -372,7 +386,7 @@ real recordings are ready:
 ## Architecture
 
     internal/source      Source interface + the built-in simulation
-    internal/telemetry   recorded telemetry: CSV, JSON Lines, Influx, Prometheus and access-log readers
+    internal/telemetry   recorded telemetry: CSV, JSON Lines, Influx, Prometheus, access-log and pcap readers
     internal/wikipedia   Wikimedia recent-changes stream source
     internal/prometheus  Prometheus query source
     internal/fastly      Fastly real-time API source

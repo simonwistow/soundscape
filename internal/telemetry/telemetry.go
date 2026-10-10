@@ -3,13 +3,14 @@
 // time or rendered faster than that.
 //
 // It reads CSV, JSON Lines, InfluxDB line protocol and Prometheus/
-// OpenMetrics text, which hold metrics, and web server access logs, which
-// hold events that it counts into metrics. Whatever the format, a file
-// becomes a list of samples - a time, a series and a value - which are
-// replayed a second at a time. A series keeps its last value for up to
-// five minutes, as in Prometheus, so data scraped every 15 seconds still
-// plays a tick a second, while a longer gap is skipped rather than filled;
-// a count, though, is 0 in a second without one.
+// OpenMetrics text, which hold metrics, and web server access logs and
+// packet captures, which hold events that it counts into metrics.
+// Whatever the format, a file becomes a list of samples - a time, a
+// series and a value - which are replayed a second at a time. A series
+// keeps its last value for up to five minutes, as in Prometheus, so data
+// scraped every 15 seconds still plays a tick a second, while a longer gap
+// is skipped rather than filled; a count, though, is 0 in a second
+// without one.
 //
 // Series are named:
 //   - in CSV and JSON Lines, as the column or key says (nested JSON objects
@@ -37,7 +38,7 @@ import (
 )
 
 // Formats are the names format= takes.
-var Formats = []string{"csv", "jsonl", "influx", "prometheus", "apache"}
+var Formats = []string{"csv", "jsonl", "influx", "prometheus", "apache", "pcap"}
 
 // staleness is how long a series keeps its last value without a new one.
 const staleness = 5 * 60
@@ -55,6 +56,9 @@ var extensions = map[string]string{
 	".om":      "prometheus",
 	".metrics": "prometheus",
 	".log":     "apache",
+	".pcap":    "pcap",
+	".pcapng":  "pcap",
+	".cap":     "pcap",
 }
 
 // FormatOf returns the format path's extension implies, or "" if it
@@ -117,6 +121,9 @@ func ReadWith(path string, opts Options) (*Recording, error) {
 		samples, err = readPrometheus(f)
 	case "apache":
 		samples, skipped, err = readAccessLog(f, opts.LogFormat)
+		counted = true
+	case "pcap":
+		samples, err = readPcap(f)
 		counted = true
 	default:
 		return nil, fmt.Errorf("%s: unknown format %q (want %s)", path, format, strings.Join(Formats, ", "))
