@@ -30,7 +30,7 @@ Download a prebuilt release for Linux x86-64 or macOS on Apple silicon from the
 Linux build needs Ubuntu 24.04 or later (glibc 2.39) and the ALSA library (`libasound2`, packaged
 as `libasound2t64` on Ubuntu 24.04+).
 
-Or build from source, with Go 1.24+ and a C and C++ compiler (on macOS, the Xcode command line
+Or build from source, with Go 1.27+ and a C and C++ compiler (on macOS, the Xcode command line
 tools; on Linux, also the ALSA headers: `libasound2-dev`). The examples below use `go run`:
 
 Run it. With no other options this plays the forest theme from a built-in simulation that

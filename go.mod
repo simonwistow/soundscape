@@ -1,6 +1,6 @@
 module github.com/simonwistow/soundscape
 
-go 1.24.2
+go 1.27.2
 
 require (
 	github.com/braheezy/shine-mp3 v0.2.0

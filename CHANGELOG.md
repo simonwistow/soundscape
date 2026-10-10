@@ -34,6 +34,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A MIDI file no longer drifts out of time over a long session: each event's time was rounded down to a whole MIDI tick, and the errors added up.
 - A theme with both samples and note sounds can now play them together through `--soundfont`; it used to stop with "oto: context is already created". The sample player and the synth now share one mix.
 
+### Security
+
+- Built with Go 1.27.2 rather than 1.24.2, which fixes the 36 Go standard-library vulnerabilities `govulncheck` found reachable (in the HTTPS client the live sources use, among others). Building from source now needs Go 1.27 or later; an older Go downloads it by itself.
+
 ## [0.2.0] - 2026-10-08
 
 ### Added
