@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -375,6 +376,13 @@ func buildSource(spec source.Spec, m mapping.Mapping, token string, verbose bool
 				return nil, fmt.Errorf("file loop=%q: want true or false", v)
 			}
 		}
+		speed := 1.0
+		if v, ok := spec.Options["speed"]; ok {
+			speed, err = strconv.ParseFloat(strings.TrimSuffix(v, "x"), 64)
+			if err != nil || speed <= 0 || math.IsInf(speed, 0) {
+				return nil, fmt.Errorf("file speed=%q: want a number above 0, e.g. 60 (an hour a minute) or 0.5", v)
+			}
+		}
 		recording, err := telemetry.ReadWith(spec.Target, telemetry.Options{
 			Format:    spec.Options["format"],
 			LogFormat: spec.Options["logformat"],
@@ -383,7 +391,11 @@ func buildSource(spec source.Spec, m mapping.Mapping, token string, verbose bool
 			return nil, err
 		}
 		log.Printf("file: %s: %s", spec.Target, recording.Describe())
-		return &telemetry.Source{Recording: recording, Loop: loop, Verbose: verbose}, nil
+		if speed != 1 {
+			length := time.Duration(recording.End()-recording.Start()+1) * time.Second
+			log.Printf("file: at %gx, playing in %v", speed, (time.Duration(float64(length) / speed)).Round(time.Second))
+		}
+		return &telemetry.Source{Recording: recording, Loop: loop, Speed: speed, Verbose: verbose}, nil
 
 	default:
 		return nil, fmt.Errorf("source %q is not implemented yet", spec.Kind)

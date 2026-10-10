@@ -64,7 +64,7 @@ path, e.g. to play the Wikipedia mapping against simulated data with `--source s
 | `wikipedia[:wikis=enwiki+dewiki]`   | `mappings/wikipedia.yaml`  | internet access; `wikis` limits it to some wikis |
 | `prometheus[:URL][,interval=5s]`    | `mappings/prometheus.yaml` | a Prometheus server; URL defaults to `PROMETHEUS_URL`, else `http://localhost:9090`; it's polled every second unless `interval` says otherwise |
 | `fastly[:service=SID]`              | `mappings/fastly.yaml`     | a token, from `--token` or `FASTLY_API_TOKEN`; the service defaults to `FASTLY_SERVICE_ID` |
-| `file:PATH[,format=F][,loop=true]`  | whichever fits its metrics, by `--mappings`; `apache` for an access log, `pcap` for a capture | a recording, a log or a capture; see [Replaying recordings](#replaying-recordings) |
+| `file:PATH[,format=F][,loop=true][,speed=N]` | whichever fits its metrics, by `--mappings`; `apache` for an access log, `pcap` for a capture | a recording, a log or a capture; see [Replaying recordings](#replaying-recordings) |
 
 With no `--source`, a configured `FASTLY_SERVICE_ID` selects `fastly`, and otherwise the
 simulation is used.
@@ -153,6 +153,14 @@ woodpecker.
 Without an output that plays live, a recording renders as fast as it can, start to finish, with
 no `--duration` needed. `loop=true` plays it again and again, for an installation; then
 `--duration` says how much to render.
+
+`speed=` makes a time-lapse: `speed=60` plays an hour of the recording in a minute, `speed=0.5`
+plays it at half speed. The soundscape keeps its own pace, a tick a second, each tick covering
+`speed` seconds of the recording: averaged when faster, so a spike still counts, and repeated when
+slower. Its slow parts, such as the forest's storm building, keep their own pace too, so a short
+incident at high speed may only start one:
+
+    go run ./cmd/soundscape --source file:access.log,speed=60 --output file:day.mp3
 
 ## Themes and mappings
 

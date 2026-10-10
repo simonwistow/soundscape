@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -284,5 +285,105 @@ func TestFormatErrors(t *testing.T) {
 	}
 	if _, err := Read(write(t, "a.prom", "# TYPE c counter\nc 1 1000\n"), ""); err == nil || !strings.Contains(err.Error(), "no samples to play") {
 		t.Errorf("a lone counter sample: %v", err)
+	}
+}
+
+// stepN steps a source n times, or until it ends.
+func stepN(t *testing.T, s *Source, n int) (times []int64, values []map[string]float64) {
+	t.Helper()
+	for range n {
+		ts, m, ok := s.Step()
+		if !ok {
+			break
+		}
+		times = append(times, ts)
+		values = append(values, m)
+	}
+	return times, values
+}
+
+func TestSpeedAveragesWhenFaster(t *testing.T) {
+	r, err := Read(write(t, "a.csv", "time,n\n1000,1\n1001,3\n1002,5\n1003,7\n1004,9\n"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	times, values := stepN(t, &Source{Recording: r, Speed: 2}, 10)
+	if want := []int64{1000, 1001, 1002}; !reflect.DeepEqual(times, want) {
+		t.Errorf("times %v, want %v (a tick a second, two seconds of data each)", times, want)
+	}
+	var got []float64
+	for _, m := range values {
+		got = append(got, m["n"])
+	}
+	if want := []float64{2, 6, 9}; !reflect.DeepEqual(got, want) {
+		t.Errorf("values %v, want %v (each tick's seconds averaged)", got, want)
+	}
+}
+
+func TestSpeedRepeatsWhenSlower(t *testing.T) {
+	r, err := Read(write(t, "a.csv", "time,n\n1000,1\n1001,2\n"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	times, values := stepN(t, &Source{Recording: r, Speed: 0.5}, 10)
+	var got []float64
+	for _, m := range values {
+		got = append(got, m["n"])
+	}
+	if want := []float64{1, 1, 2, 2}; !reflect.DeepEqual(got, want) {
+		t.Errorf("values %v, want %v (each second lasting two ticks)", got, want)
+	}
+	if want := []int64{1000, 1001, 1002, 1003}; !reflect.DeepEqual(times, want) {
+		t.Errorf("times %v, want %v", times, want)
+	}
+}
+
+func TestSpeedStillSkipsGaps(t *testing.T) {
+	// Ten seconds, then nothing for an hour, then ten more.
+	content := "time,n\n"
+	for i := 0; i < 10; i++ {
+		content += strconv.Itoa(1000+i) + ",1\n"
+	}
+	for i := 0; i < 10; i++ {
+		content += strconv.Itoa(4600+i) + ",2\n"
+	}
+	r, err := Read(write(t, "a.csv", content), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	times, values := stepN(t, &Source{Recording: r, Speed: 5}, 100)
+	var got []float64
+	for _, m := range values {
+		got = append(got, m["n"])
+	}
+	// The data's first ten seconds, then the hour gap skipped (with the
+	// five minutes the series is held at the start of it), then the last
+	// ten seconds.
+	if got[0] != 1 || got[len(got)-1] != 2 {
+		t.Errorf("values %v", got)
+	}
+	if len(times) > 2+300/5+2+1 {
+		t.Errorf("%d ticks: the gap wasn't skipped (%v)", len(times), times)
+	}
+	for i := 1; i < len(times); i++ {
+		if times[i] <= times[i-1] {
+			t.Fatalf("times go backwards: %v", times)
+		}
+	}
+}
+
+func TestSpeedWithLoop(t *testing.T) {
+	r, err := Read(write(t, "a.csv", "time,n\n1000,1\n1001,3\n"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	times, values := stepN(t, &Source{Recording: r, Speed: 2, Loop: true}, 3)
+	if want := []int64{1000, 1001, 1002}; !reflect.DeepEqual(times, want) {
+		t.Errorf("times %v, want %v", times, want)
+	}
+	for i, m := range values {
+		if m["n"] != 2 {
+			t.Errorf("tick %d = %v, want each loop averaged to 2", i, m["n"])
+		}
 	}
 }
