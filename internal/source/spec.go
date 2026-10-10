@@ -12,7 +12,7 @@ var sources = spec.Set{Flag: "--source", Noun: "source", Kinds: []spec.Kind{
 	{Name: "fastly", Options: []string{"service"}, Help: "Fastly's real-time analytics; service defaults to FASTLY_SERVICE_ID, and the token comes from --token or FASTLY_API_TOKEN"},
 	{Name: "prometheus", Target: "URL", OptionalTarget: true, Options: []string{"interval"}, Help: "PromQL queries from a mapping, polled every interval (default 1s); URL defaults to PROMETHEUS_URL, else http://localhost:9090"},
 	{Name: "wikipedia", Options: []string{"wikis"}, Help: "Wikimedia's recent changes; wikis limits it to some, joined with +, e.g. wikis=enwiki+dewiki"},
-	{Name: "file", Target: "PATH", Options: []string{"format", "loop"}, Help: "replay recorded telemetry: CSV, JSON Lines, Influx line protocol or Prometheus/OpenMetrics text, by extension or format=csv|jsonl|influx|prometheus; loop=true repeats it forever"},
+	{Name: "file", Target: "PATH", Options: []string{"format", "logformat", "loop"}, Help: "replay recorded telemetry - CSV, JSON Lines, Influx line protocol or Prometheus/OpenMetrics text - or count an access log, by extension or format=csv|jsonl|influx|prometheus|apache; logformat= gives an access log's Apache LogFormat if it isn't Common or Combined; loop=true repeats it forever"},
 }}
 
 // Kinds returns the source kinds, for messages.

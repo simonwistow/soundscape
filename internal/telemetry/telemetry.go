@@ -2,12 +2,14 @@
 // metrics over time, so a period can be replayed through a mapping, in real
 // time or rendered faster than that.
 //
-// It reads four formats: CSV, JSON Lines, InfluxDB line protocol and
-// Prometheus/OpenMetrics text. Whatever the format, a file becomes a list
-// of samples - a time, a series and a value - which are replayed a second
-// at a time. A series keeps its last value for up to five minutes, as in
-// Prometheus, so data scraped every 15 seconds still plays a tick a second,
-// while a longer gap is skipped rather than filled.
+// It reads CSV, JSON Lines, InfluxDB line protocol and Prometheus/
+// OpenMetrics text, which hold metrics, and web server access logs, which
+// hold events that it counts into metrics. Whatever the format, a file
+// becomes a list of samples - a time, a series and a value - which are
+// replayed a second at a time. A series keeps its last value for up to
+// five minutes, as in Prometheus, so data scraped every 15 seconds still
+// plays a tick a second, while a longer gap is skipped rather than filled;
+// a count, though, is 0 in a second without one.
 //
 // Series are named:
 //   - in CSV and JSON Lines, as the column or key says (nested JSON objects
@@ -35,7 +37,7 @@ import (
 )
 
 // Formats are the names format= takes.
-var Formats = []string{"csv", "jsonl", "influx", "prometheus"}
+var Formats = []string{"csv", "jsonl", "influx", "prometheus", "apache"}
 
 // staleness is how long a series keeps its last value without a new one.
 const staleness = 5 * 60
@@ -52,6 +54,7 @@ var extensions = map[string]string{
 	".prom":    "prometheus",
 	".om":      "prometheus",
 	".metrics": "prometheus",
+	".log":     "apache",
 }
 
 // FormatOf returns the format path's extension implies, or "" if it
@@ -71,8 +74,23 @@ type sample struct {
 	counter bool
 }
 
+// Options are a file's format and the options that go with it.
+type Options struct {
+	// Format is one of Formats, or "" to go by the file's extension.
+	Format string
+	// LogFormat is an Apache LogFormat, for an access log that isn't in
+	// the Common or Combined Log Format.
+	LogFormat string
+}
+
 // Read parses the file at path in format ("" to go by its extension).
 func Read(path, format string) (*Recording, error) {
+	return ReadWith(path, Options{Format: format})
+}
+
+// ReadWith parses the file at path as opts say.
+func ReadWith(path string, opts Options) (*Recording, error) {
+	format := opts.Format
 	if format == "" {
 		format = FormatOf(path)
 		if format == "" {
@@ -86,6 +104,8 @@ func Read(path, format string) (*Recording, error) {
 	defer f.Close()
 
 	var samples []sample
+	counted := false
+	skipped := 0
 	switch format {
 	case "csv":
 		samples, err = readCSV(f)
@@ -95,13 +115,21 @@ func Read(path, format string) (*Recording, error) {
 		samples, err = readInflux(f)
 	case "prometheus":
 		samples, err = readPrometheus(f)
+	case "apache":
+		samples, skipped, err = readAccessLog(f, opts.LogFormat)
+		counted = true
 	default:
 		return nil, fmt.Errorf("%s: unknown format %q (want %s)", path, format, strings.Join(Formats, ", "))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if opts.LogFormat != "" && format != "apache" {
+		return nil, fmt.Errorf("%s: logformat is only for access logs (format=apache)", path)
+	}
 	r := newRecording(samples)
+	r.counted = counted
+	r.skipped = skipped
 	if len(r.samples) == 0 {
 		// (A counter needs two samples to make a rate.)
 		return nil, fmt.Errorf("%s: no samples to play", path)
@@ -145,6 +173,12 @@ func newRecording(samples []sample) *Recording {
 type Recording struct {
 	samples []sample
 	series  int
+	// counted recordings hold counts of events (requests in a log, packets
+	// in a capture) rather than measurements, so a second without a
+	// sample is a 0, not the last value held.
+	counted bool
+	// skipped is how many lines of a log didn't fit its format.
+	skipped int
 }
 
 // Start and End are the first and last seconds with samples.
@@ -157,8 +191,12 @@ func (r *Recording) Series() int { return r.series }
 // Describe says what's in the recording, for the log.
 func (r *Recording) Describe() string {
 	start, end := time.Unix(r.Start(), 0).UTC(), time.Unix(r.End(), 0).UTC()
-	return fmt.Sprintf("%d series, %v from %s to %s", r.series,
+	s := fmt.Sprintf("%d series, %v from %s to %s", r.series,
 		end.Sub(start)+time.Second, start.Format(time.DateTime), end.Format(time.DateTime)+" UTC")
+	if r.skipped > 0 {
+		s += fmt.Sprintf("; skipped %d lines that didn't fit the log format", r.skipped)
+	}
+	return s
 }
 
 // player steps through a recording, holding each series' latest value.
@@ -201,9 +239,13 @@ func (p *player) step() (int64, map[string]float64, bool) {
 				delete(p.current, series)
 				continue
 			}
-			metrics[series] = h.value
+			v := h.value
+			if p.r.counted && h.at != sec {
+				v = 0
+			}
+			metrics[series] = v
 			if name, ok := p.names[series]; ok {
-				sums[name] += h.value
+				sums[name] += v
 			}
 		}
 		if len(metrics) == 0 {

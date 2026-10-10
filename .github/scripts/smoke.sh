@@ -16,6 +16,11 @@ cd "${2:-.}"
 
 for theme in themes/*/theme.yaml; do
   for mapping in mappings/*.yaml; do
-    "$bin" validate --source "$(basename "$mapping" .yaml)" --mappings "$mapping" "$theme"
+    name=$(basename "$mapping" .yaml)
+    case $name in
+      apache) source=file:access.log ;;
+      *) source=$name ;;
+    esac
+    "$bin" validate --source "$source" --mappings "$mapping" "$theme"
   done
 done

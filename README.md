@@ -64,7 +64,7 @@ path, e.g. to play the Wikipedia mapping against simulated data with `--source s
 | `wikipedia[:wikis=enwiki+dewiki]`   | `mappings/wikipedia.yaml`  | internet access; `wikis` limits it to some wikis |
 | `prometheus[:URL][,interval=5s]`    | `mappings/prometheus.yaml` | a Prometheus server; URL defaults to `PROMETHEUS_URL`, else `http://localhost:9090`; it's polled every second unless `interval` says otherwise |
 | `fastly[:service=SID]`              | `mappings/fastly.yaml`     | a token, from `--token` or `FASTLY_API_TOKEN`; the service defaults to `FASTLY_SERVICE_ID` |
-| `file:PATH[,format=F][,loop=true]`  | whichever fits its metrics, by `--mappings` | a recording; see [Replaying recordings](#replaying-recordings) |
+| `file:PATH[,format=F][,loop=true]`  | whichever fits its metrics, by `--mappings`; `apache` for an access log | a recording or a log; see [Replaying recordings](#replaying-recordings) |
 
 With no `--source`, a configured `FASTLY_SERVICE_ID` selects `fastly`, and otherwise the
 simulation is used.
@@ -105,6 +105,7 @@ It reads four formats, told apart by the extension, or by `format=` for any othe
 | `jsonl`      | `.jsonl`, `.ndjson`, `.json`  | `{"ts": 1696000000, "requests": 4500}` per line; nested objects become `a.b` |
 | `influx`     | `.lp`, `.influx`, `.line`     | InfluxDB line protocol: `fastly,service=x requests=4500 1696000000000000000`, a series per field, named `fastly.requests` |
 | `prometheus` | `.prom`, `.om`, `.metrics`    | Prometheus or OpenMetrics text, as used for backfilling: `requests{code="200"} 4500 1696000000000` |
+| `apache`     | `.log`                        | a web server's access log; see below |
 
 Every sample needs a timestamp: Unix seconds, milliseconds, microseconds or nanoseconds (told
 apart by size), or, in CSV and JSON, an RFC 3339 date. A recording plays a tick a second; a
@@ -112,6 +113,28 @@ series keeps its last value for up to five minutes, so data scraped every 15 sec
 smoothly, and a longer gap is skipped. A series with labels or tags can be named exactly, as
 `requests{code="200"}` (labels sorted), or as plain `requests`, summed across its labels.
 Prometheus counters become per-second rates, as `rate()` would make them.
+
+#### Access logs
+
+An access log has a line per request rather than metrics, so it's counted into them, a second at
+a time: `requests`, `bytes`, `status_1xx` to `status_5xx`, `method_get`, `method_post` and so on
+(`method_other` for the rest), and `clients` (distinct addresses). If the log records how long
+each request took, there's also `response_ms` and `response_ms_max`, the mean and the slowest. A
+second with no requests counts 0; a lull of more than five minutes is skipped. `mappings/apache.yaml`
+plays these, and is the default for an access log:
+
+    go run ./cmd/soundscape --source file:/var/log/apache2/access.log
+
+It reads Apache's and nginx's Common and Combined Log Formats as they are (nginx's extra fields on
+the end are fine). For any other, give the server's `LogFormat` as `logformat=`, quoted for the
+shell, e.g. for one with response times:
+
+    go run ./cmd/soundscape --source 'file:access.log,logformat=%h %l %u %t "%r" %>s %b %D'
+
+It needs a time (`%t`, in the default format) and a status (`%>s` or `%s`), and uses `%h` or `%a`
+for clients, `%r` or `%m` for methods, `%b`, `%B` or `%O` for bytes, and `%D`, `%T` or `%{ms}T`
+for response times; anything else is matched and ignored. The `logformat` can't contain a comma.
+Lines that don't fit are skipped (the count is logged), unless most don't.
 
 Without an output that plays live, a recording renders as fast as it can, start to finish, with
 no `--duration` needed. `loop=true` plays it again and again, for an installation; then
@@ -349,7 +372,7 @@ real recordings are ready:
 ## Architecture
 
     internal/source      Source interface + the built-in simulation
-    internal/telemetry   recorded telemetry: CSV, JSON Lines, Influx and Prometheus readers
+    internal/telemetry   recorded telemetry: CSV, JSON Lines, Influx, Prometheus and access-log readers
     internal/wikipedia   Wikimedia recent-changes stream source
     internal/prometheus  Prometheus query source
     internal/fastly      Fastly real-time API source

@@ -259,7 +259,8 @@ func buildVersion() string {
 // pickSource works out the source and the mapping file: --source, else
 // fastly if FASTLY_SERVICE_ID is set, else simulate; and --mappings, else
 // the mapping named after the source. A recording's metrics could be
-// anyone's, so a file source needs --mappings.
+// anyone's, so a file source needs --mappings, unless it's an access log,
+// whose metrics soundscape names.
 func pickSource(sourceFlag, mappingsFlag string) (source.Spec, string, error) {
 	if sourceFlag == "" {
 		sourceFlag = "simulate"
@@ -272,10 +273,19 @@ func pickSource(sourceFlag, mappingsFlag string) (source.Spec, string, error) {
 		return source.Spec{}, "", err
 	}
 	if mappingsFlag == "" {
-		if spec.Kind == "file" {
-			return source.Spec{}, "", fmt.Errorf("--source %s: say whose metrics the file holds with --mappings, e.g. --mappings fastly", sourceFlag)
-		}
 		mappingsFlag = spec.Kind
+		if spec.Kind == "file" {
+			// Counted formats have metrics of soundscape's own naming,
+			// and a mapping to match.
+			format := spec.Options["format"]
+			if format == "" {
+				format = telemetry.FormatOf(spec.Target)
+			}
+			if format != "apache" {
+				return source.Spec{}, "", fmt.Errorf("--source %s: say whose metrics the file holds with --mappings, e.g. --mappings fastly", sourceFlag)
+			}
+			mappingsFlag = format
+		}
 	}
 	return spec, mapping.Resolve(mappingsFlag), nil
 }
@@ -365,7 +375,10 @@ func buildSource(spec source.Spec, m mapping.Mapping, token string, verbose bool
 				return nil, fmt.Errorf("file loop=%q: want true or false", v)
 			}
 		}
-		recording, err := telemetry.Read(spec.Target, spec.Options["format"])
+		recording, err := telemetry.ReadWith(spec.Target, telemetry.Options{
+			Format:    spec.Options["format"],
+			LogFormat: spec.Options["logformat"],
+		})
 		if err != nil {
 			return nil, err
 		}

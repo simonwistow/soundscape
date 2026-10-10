@@ -118,7 +118,7 @@ func TestCheckWriter(t *testing.T) {
 		{"a.ndjson", "", ""},
 		{"a.csv", "", ""},
 		{"a.log", "jsonl", ""},
-		{"a.log", "", "can't tell the format"},
+		{"a.dat", "", "can't tell the format"},
 		{"a.prom", "", "not prometheus"},
 		{"a.csv", "influx", "not influx"},
 	} {

@@ -1,0 +1,30 @@
+# Web server access logs -> theme inputs.
+#
+# For --source file:access.log, Apache's or nginx's Common or Combined Log
+# Format, or any other with logformat= (see the README). The log's requests
+# are counted into per-second metrics: requests, bytes, status_1xx to
+# status_5xx, method_get, method_post, ..., clients (distinct addresses)
+# and, if the log records how long each request took, response_ms and
+# response_ms_max. The ranges suit a modest site; tune normalise to yours.
+# response_ms makes a good trouble or quirks input if your log has it.
+
+inputs:
+  activity:
+    metric: requests
+    smoothing: 5
+    normalise: { min: 0, max: 50 }
+
+  flow:
+    metric: bytes
+    smoothing: 10
+    normalise: { min: 1000, max: 5000000 }
+
+  trouble:
+    metric: status_5xx
+    smoothing: 5
+    normalise: { min: 0, max: 5 }
+
+  quirks:
+    metric: status_4xx
+    smoothing: 2
+    normalise: { min: 0, max: 10 }
