@@ -50,6 +50,43 @@ Try the other example themes:
 The `pentatonic` theme plays MIDI notes rather than recordings, so it needs a synth to play them;
 see [MIDI](#midi) below.
 
+##  Rationale
+
+For a long time I've been fascinated by the ways that humans (and other animals) can
+get an extremely quick read of a situation and can often discern that something is wrong
+without quite knowing why.
+
+I first started thinking about when I read the MIT Press book "Sources of Power" by Gary Klein
+and his work on intuition and decision making. Stories of experienced Fire Fighters "knowing"
+that something was wrong even without obvious evidence and evacuating shortly before a building
+collapse or how locals know when trouble is brewing in a city because of a change of mood but how
+tourists, oblivious to the differences, blunder into riots or revolutions.
+
+Soldiers are told, upon entering a stationary position, that they must remain absolutely still
+and silent for several minutes. This waiting period allows their hearing to adjust to the "normal"
+sounds of the environment (the baseline) so that variations stand out immediately.
+
+I've done experiments where I've had a small number (3 or 4) of important metrics (e.g requests,
+bandwidth and errors) on several TV screens around where developers sit. Most of the developers
+said they didn't look at the screens but the number of outages and issues dropped dramatically.
+
+Timelapse video though showed them subconsciously looking at the screens frequently, even if it was
+only a quick glance in much the same way that players in sports often constantly scan around them,
+probably without thinking about it, to mentally build a map of where team mates and opponents are.
+
+I've tried experiments before back in the early 00s - using Alex McLean's [MIDI::Realtime](https://metacpan.org/pod/MIDI::Realtime)
+Perl module to turn metrics into noise which, unfortunately, sounded like cacophonous screeching. But even
+in the noise certain patterns could be heard - port knocking sounded like quick, staccato knocks for example.
+Alex went on to much greater success with the [Live Coding](https://www.perl.com/pub/2004/08/31/livecode.html/)
+and [TOPLAP](https://blog.toplap.org) movements.
+
+20 years later this is another attempt - using a fake but real sounding environment to allow people
+to subconsciously detect when things are going wrong. You're sitting in a NOC listening to tranquil
+forest sounds and suddenly the rivers starts flowing faster. Or the birds stop chirping. Or you hear
+a roll of thunder.
+
+I am not a sound designer though so there are lots of improvements and refinements to be made.
+
 ## Data sources
 
 `--source` says where the telemetry comes from, written like an output,
