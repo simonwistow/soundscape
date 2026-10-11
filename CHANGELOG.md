@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
 ### Added
 
 - `program` (and `bank`) on a note or cc sound picks its instrument, on a SoundFont or any General MIDI synth: `--soundfont`, live MIDI and `--midi-out` all send it as a program change. `soundscape soundfont-presets file.sf2` lists a SoundFont's instruments. The `pentatonic` theme now plays a vibraphone, an acoustic bass and tubular bells.
@@ -73,6 +75,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - There is no live MIDI device output yet, only MIDI files.
 - On Linux, audio goes through ALSA, so `libasound2` must be installed.
 
-[Unreleased]: https://github.com/simonwistow/soundscape/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/simonwistow/soundscape/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/simonwistow/soundscape/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/simonwistow/soundscape/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/simonwistow/soundscape/releases/tag/v0.1.0
