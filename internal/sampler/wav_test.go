@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/simonwistow/soundscape/internal/assets"
 )
 
 // writeTestWAV writes a minimal PCM16 WAV file with a synthetic sine wave,
@@ -58,7 +60,7 @@ func TestLoadWAVMonoToStereo(t *testing.T) {
 	path := filepath.Join(dir, "tone.wav")
 	writeTestWAV(t, path, 44100, 1, 1000, 440)
 
-	frames, rate, err := loadWAV(path)
+	frames, rate, err := loadWAV(assets.Disk{}, path)
 	if err != nil {
 		t.Fatalf("loadWAV: %v", err)
 	}
@@ -80,7 +82,7 @@ func TestLoadWAVStereoPassthrough(t *testing.T) {
 	path := filepath.Join(dir, "stereo.wav")
 	writeTestWAV(t, path, 22050, 2, 500, 220)
 
-	frames, rate, err := loadWAV(path)
+	frames, rate, err := loadWAV(assets.Disk{}, path)
 	if err != nil {
 		t.Fatalf("loadWAV: %v", err)
 	}
@@ -97,7 +99,7 @@ func TestLoadSampleResamplesToTargetRate(t *testing.T) {
 	path := filepath.Join(dir, "low-rate.wav")
 	writeTestWAV(t, path, 22050, 1, 2205, 440) // 0.1s of audio
 
-	s, err := loadSample(path, 44100)
+	s, err := loadSample(assets.Disk{}, path, 44100)
 	if err != nil {
 		t.Fatalf("loadSample: %v", err)
 	}
@@ -113,7 +115,7 @@ func TestLoadGroupPicksAmongSamples(t *testing.T) {
 	writeTestWAV(t, filepath.Join(dir, "a.wav"), 44100, 1, 100, 300)
 	writeTestWAV(t, filepath.Join(dir, "b.wav"), 44100, 1, 100, 600)
 
-	g, err := LoadGroup(dir, 44100)
+	g, err := LoadGroup(assets.Disk{}, dir, 44100)
 	if err != nil {
 		t.Fatalf("LoadGroup: %v", err)
 	}

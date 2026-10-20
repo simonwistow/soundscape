@@ -21,8 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
+	"io/fs"
 	"sort"
 	"strings"
 	"sync"
@@ -31,9 +30,6 @@ import (
 
 	"github.com/simonwistow/soundscape/internal/metrics"
 )
-
-// Dir is where bare mapping names (--mappings wikipedia) are looked up.
-const Dir = "mappings"
 
 type Mapping struct {
 	Inputs map[string]Input `yaml:"inputs"`
@@ -51,19 +47,10 @@ type Range struct {
 	Max float64 `yaml:"max"`
 }
 
-// Resolve turns a mapping name into a file path: anything that looks like a
-// path (contains a separator or ends in .yaml/.yml) is used as-is, and a
-// bare name like "wikipedia" means mappings/wikipedia.yaml.
-func Resolve(name string) string {
-	if strings.ContainsRune(name, filepath.Separator) || strings.ContainsRune(name, '/') ||
-		strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
-		return name
-	}
-	return filepath.Join(Dir, name+".yaml")
-}
-
-func Load(path string) (Mapping, error) {
-	b, err := os.ReadFile(path)
+// Load reads the mapping at file in fsys (assets.Disk{} for the
+// filesystem; assets.Mapping finds one by name).
+func Load(fsys fs.FS, file string) (Mapping, error) {
+	b, err := fs.ReadFile(fsys, file)
 	if err != nil {
 		return Mapping{}, err
 	}
@@ -71,7 +58,7 @@ func Load(path string) (Mapping, error) {
 	var keys map[string]any
 	if err := yaml.Unmarshal(b, &keys); err == nil {
 		if _, ok := keys["source"]; ok {
-			return Mapping{}, fmt.Errorf("%s: a mapping no longer names its source; remove source:, and pick the source with --source", path)
+			return Mapping{}, fmt.Errorf("%s: a mapping no longer names its source; remove source:, and pick the source with --source", file)
 		}
 	}
 
@@ -80,7 +67,7 @@ func Load(path string) (Mapping, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
 	if err := dec.Decode(&m); err != nil && !errors.Is(err, io.EOF) {
-		return Mapping{}, fmt.Errorf("%s: %w", path, err)
+		return Mapping{}, fmt.Errorf("%s: %w", file, err)
 	}
 	return m, nil
 }

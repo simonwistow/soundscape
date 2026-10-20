@@ -44,8 +44,8 @@ Listen to Wikipedia being edited, live (no account needed):
 
 Try the other example themes:
 
-    go run ./cmd/soundscape --source wikipedia --theme themes/market/theme.yaml
-    go run ./cmd/soundscape --source wikipedia --theme themes/road/theme.yaml
+    go run ./cmd/soundscape --source wikipedia --theme market
+    go run ./cmd/soundscape --source wikipedia --theme road
 
 The `pentatonic` theme plays MIDI notes rather than recordings, so it needs a synth to play them;
 see [MIDI](#midi) below.
@@ -244,6 +244,33 @@ An input the mapping doesn't provide reads as 0 (with a warning at startup).
 A theme is a directory: `theme.yaml` plus a `samples/` folder, so it's self-contained wherever
 it's run from (`sample_group` paths resolve relative to the theme file).
 
+A theme or mapping can be given by name, `--theme road` or `--mappings fastly`, which means
+`themes/road/theme.yaml` or `mappings/fastly.yaml` under the current directory, or by path, such
+as `--theme ~/mine/theme.yaml` or `--theme ~/mine`.
+
+### Built-in themes and mappings
+
+Built with `-tags embed`, the binary carries the bundled themes, their samples and the mappings
+inside it, so it plays with nothing beside it, from any directory:
+
+    go build -tags embed -o soundscape ./cmd/soundscape
+    go install -tags embed github.com/simonwistow/soundscape/cmd/soundscape@latest
+
+That adds about 9 MB to it. A name is still looked for on disk first, and only then among the
+built-in ones, so a copy on disk takes over: run from a checkout, it plays the files you can see
+and edit. A path is always read from disk.
+
+List what a name can pick, and where each comes from:
+
+    go run -tags embed ./cmd/soundscape themes
+
+Copy a built-in theme, samples and all, or a mapping out of the binary to change it. With no
+directory it goes to `themes/NAME` or `mappings/`, where it takes over from the built-in one; it
+never overwrites anything:
+
+    soundscape export forest
+    soundscape export wikipedia my-mappings
+
 ## Outputs
 
 `--output` says where the soundscape goes. With none it plays through the speakers; give it more
@@ -268,7 +295,7 @@ Options follow the target after commas, as `key=value`. Without `speakers` (say,
 `file:` records the soundscape as it plays, WAV or MP3 by the file's extension. Give
 `speakers` too, to hear it while it records:
 
-    go run ./cmd/soundscape --theme themes/forest/theme.yaml --output speakers --output file:forest.mp3
+    go run ./cmd/soundscape --theme forest --output speakers --output file:forest.mp3
 
 Without `speakers` it records silently, in real time, which needs no sound card, so it can run
 on a server. Several files can be written at once. Stop with Ctrl+C; the files are finished on
@@ -288,7 +315,7 @@ the notes themselves, use `midi-file:`.
 (`simulate`, or a `file`) and every output is offline (`file`, `midi-file`, `console`), it doesn't wait for the
 clock: it renders as fast as it can, about a hundred times real time for the forest.
 
-    go run ./cmd/soundscape --theme themes/forest/theme.yaml --duration 1h --seed 42 --output file:forest.mp3
+    go run ./cmd/soundscape --theme forest --duration 1h --seed 42 --output file:forest.mp3
 
 With `--seed`, a render comes out the same, to the bit, every time. A recording that doesn't
 loop renders to its end without a `--duration`. With a live source (Fastly,
@@ -301,7 +328,7 @@ synth, a DAW, or a software instrument. No hardware is needed.
 
 Create a virtual MIDI port called `soundscape`, which other software sees as a MIDI input:
 
-    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --output midi-virtual:soundscape
+    go run ./cmd/soundscape --theme pentatonic --output midi-virtual:soundscape
 
 On macOS, GarageBand plays it with no setup: create an empty project with a Software Instrument
 track, and it plays whatever arrives on any MIDI input. On Linux, connect the port to a synth such
@@ -313,7 +340,7 @@ it in Audio MIDI Setup). A name that matches no port exactly can be part of one 
 finds `IAC Driver Bus 1`:
 
     go run ./cmd/soundscape midi-ports
-    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --output midi:IAC
+    go run ./cmd/soundscape --theme pentatonic --output midi:IAC
 
 Each sound's `channel` (0-15) becomes its MIDI channel (1-16 in most software), so a DAW can give
 each sound its own instrument.
@@ -322,7 +349,7 @@ Play the same sounds through a SoundFont, with no other software. Any General MI
 will do, such as the freely licensed
 [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS):
 
-    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --soundfont /path/to/your.sf2
+    go run ./cmd/soundscape --theme pentatonic --soundfont /path/to/your.sf2
 
 A sound's `program` picks its instrument, on a SoundFont or on any General MIDI synth or DAW that
 follows program changes (GarageBand doesn't). In General MIDI, 11 is a vibraphone, 32 an acoustic
@@ -335,12 +362,12 @@ A program belongs to a MIDI channel, so sounds that share a channel share an ins
 
 Or record them as a Standard MIDI File (finalized on exit, including Ctrl+C):
 
-    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --output midi-file:session.mid
+    go run ./cmd/soundscape --theme pentatonic --output midi-file:session.mid
 
 Live MIDI, a SoundFont and a MIDI file can all be used at once, alongside a theme's samples:
 the SoundFont plays through `--output speakers`, the default, so add it back when giving others:
 
-    go run ./cmd/soundscape --theme themes/pentatonic/theme.yaml --soundfont /path/to/your.sf2 \
+    go run ./cmd/soundscape --theme pentatonic --soundfont /path/to/your.sf2 \
         --output speakers --output midi-file:session.mid
 
 ## OSC
@@ -349,7 +376,7 @@ Every event, from every kind of sound, can be sent as an [Open Sound Control](ht
 message over UDP, for SuperCollider, Max, Pure Data, TouchDesigner or anything else that speaks
 OSC to play, or react to, as it likes:
 
-    go run ./cmd/soundscape --theme themes/forest/theme.yaml --output osc:localhost:57120
+    go run ./cmd/soundscape --theme forest --output osc:localhost:57120
 
 Each message is addressed by the sound that made it, so a receiver can pick sounds out with one
 pattern match:
@@ -374,7 +401,7 @@ speakers as well, add `--output speakers`.
 SuperCollider, from the OSC messages, much as the built-in player does.
 
     /Applications/SuperCollider.app/Contents/MacOS/sclang examples/osc/supercollider.scd themes/forest/samples
-    go run ./cmd/soundscape --theme themes/forest/theme.yaml --output osc:localhost:57120
+    go run ./cmd/soundscape --theme forest --output osc:localhost:57120
 
 ## More options
 
@@ -394,13 +421,14 @@ Validate a theme, and optionally check it against a mapping. This catches missin
 names, inverted ranges, out-of-range MIDI values, missing sample directories, unknown behaviour
 or output kinds, and theme inputs the mapping doesn't provide:
 
-    go run ./cmd/soundscape validate --source wikipedia themes/forest/theme.yaml
+    go run ./cmd/soundscape validate --source wikipedia forest
 
 Edit the theme or mapping while a run is going and it hot-reloads automatically. Files are
 checked once a second and validated before being applied, so an invalid edit is logged and
 ignored rather than crashing or going silent. Tuning a mapping's `normalise` ranges against live
 data this way is the quickest route to a good-sounding setup. Switching a mapping's source, or
-changing Prometheus queries, needs a restart. Disable with `--watch=false`.
+changing Prometheus queries, needs a restart. Disable with `--watch=false`. A built-in theme or
+mapping can't change, so it isn't watched: `soundscape export` it to edit it.
 
 ## Current state
 
@@ -436,6 +464,7 @@ real recordings are ready:
     internal/prometheus  Prometheus query source
     internal/fastly      Fastly real-time API source
     internal/mapping     mapping files: source metrics -> conditioned theme inputs
+    internal/assets      finds themes and mappings, on disk or built in, and exports them
     internal/metrics     smoothing and normalisation
     internal/theme       YAML theme + behaviour engine
     internal/scheduler   Poisson event-rate scheduler
@@ -454,6 +483,7 @@ real recordings are ready:
     internal/cmd/changelog  CHANGELOG.md linting and release tooling (see RELEASING.md)
     mappings/            bundled mappings, one per source
     themes/              bundled themes
+    builtin.go           builds themes/ and mappings/ into the binary, with -tags embed
 
 A `source.Source` just emits a timestamped `map[string]float64` each tick; a
 `mapping.Conditioner` turns that into theme inputs; and the theme engine only depends on
@@ -471,7 +501,6 @@ text-only Console backend.
 
 1. Add more stochastic actors alongside flocks, crowds and weather.
 2. Add MIDI 2.0 output, once synths support it more widely.
-3. Embed themes, mappings and optionally assets into a single distributable binary.
 
 ## License
 

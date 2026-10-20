@@ -2,7 +2,7 @@ package theme
 
 import (
 	"fmt"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -66,13 +66,13 @@ func Validate(t Theme) []error {
 		errs = append(errs, validateApplies(label, snd)...)
 		switch snd.Type {
 		case "probabilistic":
-			errs = append(errs, validateProbabilistic(label, snd)...)
+			errs = append(errs, validateProbabilistic(t.FS(), label, snd)...)
 		case "continuous":
-			errs = append(errs, validateContinuous(label, snd)...)
+			errs = append(errs, validateContinuous(t.FS(), label, snd)...)
 		case "flock":
-			errs = append(errs, validateFlock(label, snd)...)
+			errs = append(errs, validateFlock(t.FS(), label, snd)...)
 		case "crowd":
-			errs = append(errs, validateCrowd(label, snd)...)
+			errs = append(errs, validateCrowd(t.FS(), label, snd)...)
 		default:
 			errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
 				"unknown behaviour type %q (expected probabilistic, continuous, flock or crowd)", snd.Type)})
@@ -82,7 +82,7 @@ func Validate(t Theme) []error {
 	return errs
 }
 
-func validateProbabilistic(label string, s Sound) []error {
+func validateProbabilistic(fsys fs.FS, label string, s Sound) []error {
 	var errs []error
 
 	if s.Rate == nil {
@@ -91,12 +91,12 @@ func validateProbabilistic(label string, s Sound) []error {
 		errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
 			"invalid rate range: min (%v) > max (%v)", s.Rate.Min, s.Rate.Max)})
 	}
-	return append(errs, validateCalls(label, s, "probabilistic")...)
+	return append(errs, validateCalls(fsys, label, s, "probabilistic")...)
 }
 
 // validateCalls checks what probabilistic and flock sounds have in common:
 // each event is a single call, a note or a sample.
-func validateCalls(label string, s Sound, kind string) []error {
+func validateCalls(fsys fs.FS, label string, s Sound, kind string) []error {
 	var errs []error
 
 	if s.Velocity != nil && s.Velocity.Min > s.Velocity.Max {
@@ -124,7 +124,7 @@ func validateCalls(label string, s Sound, kind string) []error {
 				"invalid MIDI channel %d (expected 0-15)", s.Channel)})
 		}
 	case "sample":
-		errs = append(errs, validateSampleGroup(label, s.SampleGroup)...)
+		errs = append(errs, validateSampleGroup(fsys, label, s.SampleGroup)...)
 	default:
 		errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
 			"unknown output %q for %s sound (expected note or sample)", s.Output, kind)})
@@ -133,7 +133,7 @@ func validateCalls(label string, s Sound, kind string) []error {
 	return errs
 }
 
-func validateFlock(label string, s Sound) []error {
+func validateFlock(fsys fs.FS, label string, s Sound) []error {
 	var errs []error
 
 	if s.Rate == nil {
@@ -157,10 +157,10 @@ func validateFlock(label string, s Sound) []error {
 	if s.CallRate <= 0 {
 		errs = append(errs, ValidationError{Sound: label, Msg: "flock has no call_rate (calls per member per second)"})
 	}
-	return append(errs, validateCalls(label, s, "flock")...)
+	return append(errs, validateCalls(fsys, label, s, "flock")...)
 }
 
-func validateCrowd(label string, s Sound) []error {
+func validateCrowd(fsys fs.FS, label string, s Sound) []error {
 	var errs []error
 
 	// rate is optional: without it, the crowd never has an outburst.
@@ -178,7 +178,7 @@ func validateCrowd(label string, s Sound) []error {
 		errs = append(errs, ValidationError{Sound: label, Msg: "crowd has no call_rate (calls per person per second)"})
 	}
 
-	return append(errs, validateCalls(label, s, "crowd")...)
+	return append(errs, validateCalls(fsys, label, s, "crowd")...)
 }
 
 // validateWeather checks each weather's settings, and that its name is
@@ -250,7 +250,7 @@ func validateApplies(label string, s Sound) []error {
 	return errs
 }
 
-func validateContinuous(label string, s Sound) []error {
+func validateContinuous(fsys fs.FS, label string, s Sound) []error {
 	var errs []error
 
 	switch s.Output {
@@ -264,7 +264,7 @@ func validateContinuous(label string, s Sound) []error {
 				"invalid MIDI channel %d (expected 0-15)", s.Channel)})
 		}
 	case "sample_loop":
-		errs = append(errs, validateSampleGroup(label, s.SampleGroup)...)
+		errs = append(errs, validateSampleGroup(fsys, label, s.SampleGroup)...)
 	default:
 		errs = append(errs, ValidationError{Sound: label, Msg: fmt.Sprintf(
 			"unknown output %q for continuous sound (expected cc or sample_loop)", s.Output)})
@@ -273,12 +273,12 @@ func validateContinuous(label string, s Sound) []error {
 	return errs
 }
 
-func validateSampleGroup(label, dir string) []error {
+func validateSampleGroup(fsys fs.FS, label, dir string) []error {
 	if dir == "" {
 		return []error{ValidationError{Sound: label, Msg: "sample-output sound has no sample_group"}}
 	}
 
-	entries, err := os.ReadDir(dir)
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return []error{ValidationError{Sound: label, Msg: fmt.Sprintf("sample_group %q: %v", dir, err)}}
 	}

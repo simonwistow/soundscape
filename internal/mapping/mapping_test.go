@@ -5,20 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
-func TestResolve(t *testing.T) {
-	for in, want := range map[string]string{
-		"wikipedia":         filepath.Join("mappings", "wikipedia.yaml"),
-		"my.yaml":           "my.yaml",
-		"./local":           "./local",
-		"/abs/mapping.yaml": "/abs/mapping.yaml",
-	} {
-		if got := Resolve(in); got != want {
-			t.Errorf("Resolve(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
+	"github.com/simonwistow/soundscape/internal/assets"
+)
 
 func TestValidate(t *testing.T) {
 	for _, tc := range []struct {
@@ -77,7 +66,7 @@ func expect(t *testing.T, name string, errs []error, want string) {
 func TestLoadRejectsASource(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "old.yaml")
 	os.WriteFile(path, []byte("source: fastly\ninputs:\n  a: { metric: x }\n"), 0o644)
-	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "pick the source with --source") {
+	if _, err := Load(assets.Disk{}, path); err == nil || !strings.Contains(err.Error(), "pick the source with --source") {
 		t.Errorf("Load of a mapping with a source: %v", err)
 	}
 }
@@ -85,7 +74,7 @@ func TestLoadRejectsASource(t *testing.T) {
 func TestLoadRejectsUnknownKeys(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "typo.yaml")
 	os.WriteFile(path, []byte("inputs:\n  a: { metric: x, smoothnig: 3 }\n"), 0o644)
-	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "smoothnig") {
+	if _, err := Load(assets.Disk{}, path); err == nil || !strings.Contains(err.Error(), "smoothnig") {
 		t.Errorf("Load of a misspelt key: %v", err)
 	}
 }
@@ -148,12 +137,12 @@ func TestConditionerReloadPreservesSmoothing(t *testing.T) {
 
 // Every mapping shipped in mappings/ should load and validate.
 func TestShippedMappingsValidate(t *testing.T) {
-	paths, err := filepath.Glob(filepath.Join("..", "..", Dir, "*.yaml"))
+	paths, err := filepath.Glob(filepath.Join("..", "..", assets.MappingsDir, "*.yaml"))
 	if err != nil || len(paths) == 0 {
 		t.Fatalf("no mappings found: %v", err)
 	}
 	for _, p := range paths {
-		m, err := Load(p)
+		m, err := Load(assets.Disk{}, p)
 		if err != nil {
 			t.Errorf("%s: %v", p, err)
 			continue

@@ -84,6 +84,19 @@ release a new version instead.
   unpacked bundle, or pass `--theme` and `--mappings` paths.
 - `SHA256SUMS` for both.
 
+Release binaries are built without `-tags embed`, so they don't carry the
+themes, samples and mappings inside them: those ship beside the binary
+instead, where they can be read and edited. To build a single binary that
+plays from anywhere with nothing beside it, build with the tag:
+
+```sh
+go build -tags embed -trimpath -o soundscape ./cmd/soundscape
+```
+
+It is about 9 MB larger. A theme or mapping on disk still takes over from
+its built-in copy, and `soundscape export NAME` copies a built-in one out to
+edit.
+
 The Linux build needs glibc 2.39 (Ubuntu 24.04) or newer, and the ALSA
 library for audio output (`libasound2`, packaged as `libasound2t64` on
 Ubuntu 24.04 and later). On anything older, build from source.

@@ -1,11 +1,12 @@
 package sampler
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
-	"os"
 )
 
 const (
@@ -26,12 +27,12 @@ type wavFormat struct {
 // loadWAV reads a RIFF/WAVE file and returns interleaved stereo float32
 // samples ([-1, 1]) at the file's native sample rate. Supports PCM
 // (8/16/24/32-bit integer) and IEEE float (32-bit) data, mono or stereo.
-func loadWAV(path string) (frames []float32, sampleRate int, err error) {
-	f, err := os.Open(path)
+func loadWAV(fsys fs.FS, path string) (frames []float32, sampleRate int, err error) {
+	b, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return nil, 0, err
 	}
-	defer f.Close()
+	f := bytes.NewReader(b)
 
 	var riffHeader [12]byte
 	if _, err := io.ReadFull(f, riffHeader[:]); err != nil {

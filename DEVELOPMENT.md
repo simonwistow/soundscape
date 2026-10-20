@@ -89,7 +89,11 @@ so a receiver that isn't running yet just misses what's sent meanwhile. Spread a
 arrive when they're due, not early with a timetag.
 
 `sample_group` paths are relative to the theme file (resolved in `theme.Load`), so a theme
-directory (`theme.yaml` + `samples/`) is self-contained wherever it's run from. `cmd/gensamples`
+directory (`theme.yaml` + `samples/`) is self-contained wherever it's run from. Themes, samples
+and mappings are read through an `fs.FS`: `assets.Disk{}` for files on disk, or the copies built
+into the binary with `-tags embed` (`builtin.go` at the module root; without the tag,
+`builtin_none.go` leaves them out). `internal/assets` turns a `--theme` or `--mappings` name into one or the
+other, disk first, and a loaded theme remembers which in `Theme.Files`. `cmd/gensamples`
 procedurally synthesizes placeholder WAV assets (tone sweeps, filtered noise) for bootstrapping a
 new theme before real recordings are available — see its package comment.
 

@@ -3,10 +3,12 @@ package theme
 import (
 	"strings"
 	"testing"
+
+	"github.com/simonwistow/soundscape/internal/assets"
 )
 
 func TestValidateForestThemePasses(t *testing.T) {
-	th, err := Load("../../themes/forest/theme.yaml")
+	th, err := Load(assets.Disk{}, "../../themes/forest/theme.yaml")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -16,7 +18,7 @@ func TestValidateForestThemePasses(t *testing.T) {
 }
 
 func TestValidateMarketThemePasses(t *testing.T) {
-	th, err := Load("../../themes/market/theme.yaml")
+	th, err := Load(assets.Disk{}, "../../themes/market/theme.yaml")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -147,7 +149,7 @@ func TestValidateRejectsSpreadOnContinuous(t *testing.T) {
 }
 
 func TestValidatePentatonicThemePasses(t *testing.T) {
-	th, err := Load("../../themes/pentatonic/theme.yaml")
+	th, err := Load(assets.Disk{}, "../../themes/pentatonic/theme.yaml")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
