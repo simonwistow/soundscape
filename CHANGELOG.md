@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-20
+
 ### Added
 
 - `--theme` takes a name, `--theme road`, as `--mappings` does, as well as a path to a theme or its directory.
@@ -86,7 +88,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - There is no live MIDI device output yet, only MIDI files.
 - On Linux, audio goes through ALSA, so `libasound2` must be installed.
 
-[Unreleased]: https://github.com/simonwistow/soundscape/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/simonwistow/soundscape/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/simonwistow/soundscape/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/simonwistow/soundscape/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/simonwistow/soundscape/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/simonwistow/soundscape/releases/tag/v0.1.0
