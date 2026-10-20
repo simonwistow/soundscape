@@ -2,8 +2,9 @@ package sampler
 
 import (
 	"fmt"
+	"io/fs"
 	"math/rand"
-	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -18,8 +19,8 @@ type Sample struct {
 }
 
 // loadSample loads a WAV file and resamples it to targetRate if needed.
-func loadSample(path string, targetRate int) (*Sample, error) {
-	frames, sourceRate, err := loadWAV(path)
+func loadSample(fsys fs.FS, path string, targetRate int) (*Sample, error) {
+	frames, sourceRate, err := loadWAV(fsys, path)
 	if err != nil {
 		return nil, err
 	}
@@ -72,9 +73,10 @@ type Group struct {
 	Samples []*Sample
 }
 
-// LoadGroup loads every .wav file in dir (non-recursive) as one Group.
-func LoadGroup(dir string, targetRate int) (*Group, error) {
-	entries, err := os.ReadDir(dir)
+// LoadGroup loads every .wav file in dir in fsys (non-recursive) as one
+// Group.
+func LoadGroup(fsys fs.FS, dir string, targetRate int) (*Group, error) {
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -94,9 +96,9 @@ func LoadGroup(dir string, targetRate int) (*Group, error) {
 		return nil, fmt.Errorf("%s: no .wav files found", dir)
 	}
 
-	g := &Group{Name: filepath.Base(dir)}
+	g := &Group{Name: path.Base(dir)}
 	for _, name := range names {
-		s, err := loadSample(filepath.Join(dir, name), targetRate)
+		s, err := loadSample(fsys, path.Join(dir, name), targetRate)
 		if err != nil {
 			return nil, err
 		}

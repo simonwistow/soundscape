@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/simonwistow/soundscape/internal/assets"
 )
 
 func TestLoadResolvesSampleGroupRelativeToThemeFile(t *testing.T) {
@@ -24,7 +26,7 @@ sounds:
 		t.Fatalf("writing theme file: %v", err)
 	}
 
-	th, err := Load(themePath)
+	th, err := Load(assets.Disk{}, themePath)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -53,7 +55,7 @@ sounds:
 		t.Fatalf("writing theme file: %v", err)
 	}
 
-	th, err := Load(themePath)
+	th, err := Load(assets.Disk{}, themePath)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -79,7 +81,7 @@ sounds: []
 		t.Fatalf("writing theme file: %v", err)
 	}
 
-	if _, err := Load(themePath); err == nil {
+	if _, err := Load(assets.Disk{}, themePath); err == nil {
 		t.Fatal("expected an error for the unknown sources field")
 	}
 }

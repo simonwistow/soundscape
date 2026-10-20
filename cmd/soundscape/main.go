@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/simonwistow/soundscape/internal/assets"
 	"github.com/simonwistow/soundscape/internal/audio"
 	"github.com/simonwistow/soundscape/internal/clock"
 	"github.com/simonwistow/soundscape/internal/fastly"
@@ -48,6 +49,12 @@ func main() {
 		case "midi-ports":
 			runMIDIPorts()
 			return
+		case "themes":
+			runThemes()
+			return
+		case "export":
+			runExport(os.Args[2:])
+			return
 		case "version", "--version":
 			fmt.Println("soundscape", buildVersion())
 			return
@@ -56,10 +63,10 @@ func main() {
 
 	var (
 		sourceFlag   = flag.String("source", "", "where the telemetry comes from (default fastly if FASTLY_SERVICE_ID is set, else simulate):"+source.Help())
-		mappingsFlag = flag.String("mappings", "", "mapping from the source's metrics to the theme's inputs: a name in mappings/ or a path (default: the one named after the source, e.g. wikipedia for --source wikipedia:wikis=enwiki)")
+		mappingsFlag = flag.String("mappings", "", "mapping from the source's metrics to the theme's inputs: a name (mappings/NAME.yaml if there is one, else the built-in one) or a path (default: the one named after the source, e.g. wikipedia for --source wikipedia:wikis=enwiki)")
 		token        = flag.String("token", os.Getenv("FASTLY_API_TOKEN"), "Fastly API token")
 
-		themePath = flag.String("theme", "themes/forest/theme.yaml", "theme YAML file")
+		themeFlag = flag.String("theme", "forest", "the theme: a name (themes/NAME/ if there is one, else the built-in one; see soundscape themes) or a path to a theme.yaml or its directory")
 		soundFont = flag.String("soundfont", "", "optional SF2 SoundFont, to play note and cc sounds through the speakers and into recordings")
 		verbose   = flag.Bool("verbose", false, "log telemetry")
 		seed      = flag.Int64("seed", 0, "random seed for probabilistic events (0 = random each run)")
@@ -79,25 +86,30 @@ func main() {
 		log.Fatal(err)
 	}
 
-	srcSpec, mappingPath, err := pickSource(*sourceFlag, *mappingsFlag)
+	srcSpec, mappingFile, err := pickSource(*sourceFlag, *mappingsFlag)
 	if err != nil {
 		log.Fatal(err)
 	}
-	m, err := loadMapping(mappingPath, srcSpec.Kind)
+	m, err := loadMapping(mappingFile, srcSpec.Kind)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("source: %s, mapping: %s", srcSpec, mappingPath)
+	log.Printf("source: %s, mapping: %s", srcSpec, mappingFile)
 
 	src, err := buildSource(srcSpec, m, *token, *verbose)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	th, err := theme.Load(*themePath)
+	themeFile, err := assets.Theme(*themeFlag)
 	if err != nil {
 		log.Fatal(err)
 	}
+	th, err := theme.Load(themeFile.FS, themeFile.Path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("theme: %s", themeFile)
 	warnUnbound(m, th)
 
 	// Render faster than real time when there's an end (a --duration, or
@@ -157,14 +169,19 @@ func main() {
 		os.Exit(0)
 	}()
 
+	// Built-in files can't change; a copy on disk can.
 	if *watch {
 		r := &reloader{
-			themePath: *themePath, mappingPath: mappingPath, sourceKind: srcSpec.Kind,
+			themeFile: themeFile, mappingFile: mappingFile, sourceKind: srcSpec.Kind,
 			engine: engine, conditioner: conditioner, player: outs.player,
 			theme: th, mapping: m,
 		}
-		go watchFile(*themePath, r.reloadTheme)
-		go watchFile(mappingPath, r.reloadMapping)
+		if !themeFile.BuiltIn {
+			go watchFile(themeFile.Path, r.reloadTheme)
+		}
+		if !mappingFile.BuiltIn {
+			go watchFile(mappingFile.Path, r.reloadMapping)
+		}
 	}
 
 	ctx := context.Background()
@@ -262,7 +279,7 @@ func buildVersion() string {
 // the mapping named after the source. A recording's metrics could be
 // anyone's, so a file source needs --mappings, unless it's an access log
 // or a packet capture, whose metrics soundscape names.
-func pickSource(sourceFlag, mappingsFlag string) (source.Spec, string, error) {
+func pickSource(sourceFlag, mappingsFlag string) (source.Spec, assets.File, error) {
 	if sourceFlag == "" {
 		sourceFlag = "simulate"
 		if os.Getenv("FASTLY_SERVICE_ID") != "" {
@@ -271,7 +288,7 @@ func pickSource(sourceFlag, mappingsFlag string) (source.Spec, string, error) {
 	}
 	spec, err := source.ParseSpec(sourceFlag)
 	if err != nil {
-		return source.Spec{}, "", err
+		return source.Spec{}, assets.File{}, err
 	}
 	if mappingsFlag == "" {
 		mappingsFlag = spec.Kind
@@ -283,18 +300,19 @@ func pickSource(sourceFlag, mappingsFlag string) (source.Spec, string, error) {
 				format = telemetry.FormatOf(spec.Target)
 			}
 			if format != "apache" && format != "pcap" {
-				return source.Spec{}, "", fmt.Errorf("--source %s: say whose metrics the file holds with --mappings, e.g. --mappings fastly", sourceFlag)
+				return source.Spec{}, assets.File{}, fmt.Errorf("--source %s: say whose metrics the file holds with --mappings, e.g. --mappings fastly", sourceFlag)
 			}
 			mappingsFlag = format
 		}
 	}
-	return spec, mapping.Resolve(mappingsFlag), nil
+	f, err := assets.Mapping(mappingsFlag)
+	return spec, f, err
 }
 
 // loadMapping loads a mapping file and checks it, and that it suits the
 // kind of source it'll be used with ("" to skip that).
-func loadMapping(path, sourceKind string) (mapping.Mapping, error) {
-	m, err := mapping.Load(path)
+func loadMapping(f assets.File, sourceKind string) (mapping.Mapping, error) {
+	m, err := mapping.Load(f.FS, f.Path)
 	if err != nil {
 		return mapping.Mapping{}, fmt.Errorf("mapping: %w", err)
 	}
@@ -307,7 +325,7 @@ func loadMapping(path, sourceKind string) (mapping.Mapping, error) {
 		for i, issue := range issues {
 			msgs[i] = issue.Error()
 		}
-		return mapping.Mapping{}, fmt.Errorf("mapping %s:\n  - %s", path, strings.Join(msgs, "\n  - "))
+		return mapping.Mapping{}, fmt.Errorf("mapping %s:\n  - %s", f, strings.Join(msgs, "\n  - "))
 	}
 	return m, nil
 }
@@ -410,14 +428,14 @@ func envOr(key, fallback string) string {
 }
 
 // runValidate implements `soundscape validate [--source S] [--mappings M]
-// <theme.yaml>`: load the theme and report every problem theme.Validate
+// <theme>`: load the theme, by name or path, and report every problem theme.Validate
 // finds, plus, with --source or --mappings, the mapping's own problems,
 // whether it suits the source, and any theme inputs it leaves unbound. The
 // mapping is picked as for a run. Exits non-zero if anything is found.
 func runValidate(args []string) {
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
 	sourceFlag := fs.String("source", "", "also check the mapping for this source against the theme")
-	mappingsFlag := fs.String("mappings", "", "also check this mapping (name in mappings/ or path) against the theme")
+	mappingsFlag := fs.String("mappings", "", "also check this mapping (a name or a path) against the theme")
 	if err := checkRemovedFlags(args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -425,12 +443,17 @@ func runValidate(args []string) {
 	fs.Parse(args)
 
 	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: soundscape validate [--source source] [--mappings mapping] <theme.yaml>")
+		fmt.Fprintln(os.Stderr, "usage: soundscape validate [--source source] [--mappings mapping] <theme name or theme.yaml>")
 		os.Exit(2)
 	}
-	path := fs.Arg(0)
+	themeFile, err := assets.Theme(fs.Arg(0))
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	path := themeFile.String()
 
-	th, err := theme.Load(path)
+	th, err := theme.Load(themeFile.FS, themeFile.Path)
 	if err != nil {
 		fmt.Printf("%s: failed to load: %v\n", path, err)
 		os.Exit(1)
@@ -438,17 +461,21 @@ func runValidate(args []string) {
 	issues := theme.Validate(th)
 
 	if *sourceFlag != "" || *mappingsFlag != "" {
-		mappingPath := mapping.Resolve(*mappingsFlag)
+		var mappingFile assets.File
 		kind := ""
 		if *sourceFlag != "" {
-			spec, p, err := pickSource(*sourceFlag, *mappingsFlag)
+			spec, f, err := pickSource(*sourceFlag, *mappingsFlag)
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
-			mappingPath, kind = p, spec.Kind
+			mappingFile, kind = f, spec.Kind
+		} else if mappingFile, err = assets.Mapping(*mappingsFlag); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
 		}
-		m, err := mapping.Load(mappingPath)
+		mappingPath := mappingFile.String()
+		m, err := mapping.Load(mappingFile.FS, mappingFile.Path)
 		if err != nil {
 			fmt.Printf("%s: failed to load: %v\n", mappingPath, err)
 			os.Exit(1)
@@ -703,7 +730,7 @@ func buildOutput(th theme.Theme, specs []output.Spec, opts outputOptions) (*outp
 		if len(groups) > 0 {
 			p := sampler.NewPlayer(sampleRate, opts.seed)
 			for _, dir := range groups {
-				if err := p.LoadGroup(dir, dir); err != nil {
+				if err := p.LoadGroup(dir, th.FS(), dir); err != nil {
 					return fail(fmt.Errorf("loading sample group %s: %w", dir, err))
 				}
 			}
@@ -826,7 +853,8 @@ func watchFile(path string, apply func() error) {
 // reloader applies hot-reloaded theme and mapping files. It remembers the
 // current pair so each side can be checked against the other.
 type reloader struct {
-	themePath, mappingPath, sourceKind string
+	themeFile, mappingFile assets.File
+	sourceKind             string
 
 	engine      *theme.Engine
 	conditioner *mapping.Conditioner
@@ -838,7 +866,7 @@ type reloader struct {
 }
 
 func (r *reloader) reloadTheme() error {
-	newTheme, err := theme.Load(r.themePath)
+	newTheme, err := theme.Load(r.themeFile.FS, r.themeFile.Path)
 	if err != nil {
 		return fmt.Errorf("%v (keeping previous theme)", err)
 	}
@@ -860,12 +888,12 @@ func (r *reloader) reloadTheme() error {
 	warnUnbound(r.mapping, newTheme)
 	r.engine.Reload(newTheme)
 	r.theme = newTheme
-	log.Printf("hot reload: %s: reloaded (%d sounds)", r.themePath, len(newTheme.Sounds))
+	log.Printf("hot reload: %s: reloaded (%d sounds)", r.themeFile, len(newTheme.Sounds))
 	return nil
 }
 
 func (r *reloader) reloadMapping() error {
-	m, err := loadMapping(r.mappingPath, r.sourceKind)
+	m, err := loadMapping(r.mappingFile, r.sourceKind)
 	if err != nil {
 		return fmt.Errorf("%v\n(keeping previous mapping)", err)
 	}
@@ -880,7 +908,7 @@ func (r *reloader) reloadMapping() error {
 	warnUnbound(m, r.theme)
 	r.conditioner.Reload(m)
 	r.mapping = m
-	log.Printf("hot reload: %s: reloaded (%d inputs)", r.mappingPath, len(m.Inputs))
+	log.Printf("hot reload: %s: reloaded (%d inputs)", r.mappingFile, len(m.Inputs))
 	return nil
 }
 
@@ -899,7 +927,7 @@ func sameQueries(a, b mapping.Mapping) bool {
 
 func reloadSampleGroups(player *sampler.Player, th theme.Theme) error {
 	for _, dir := range sampleGroups(th) {
-		if err := player.LoadGroup(dir, dir); err != nil {
+		if err := player.LoadGroup(dir, th.FS(), dir); err != nil {
 			return fmt.Errorf("sample group %s: %w", dir, err)
 		}
 	}

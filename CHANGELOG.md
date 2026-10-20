@@ -6,6 +6,17 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `--theme` takes a name, `--theme road`, as `--mappings` does, as well as a path to a theme or its directory.
+- Built with `-tags embed`, the binary carries the bundled themes, their samples and the mappings (about 9 MB), so it plays with nothing beside it, from any directory: `go install -tags embed github.com/simonwistow/soundscape/cmd/soundscape@latest` gives a working command. A copy on disk, under `themes/` or `mappings/` in the current directory, is still used first.
+- `soundscape themes` lists the themes and mappings a name can pick, and whether each is on disk or built in.
+- `soundscape export forest`, in a binary built with `-tags embed`, copies a built-in theme, samples and all, or a mapping, to disk to edit, where it takes over from the built-in one; `soundscape export wikipedia my-mappings` puts it elsewhere. It never overwrites anything.
+
+### Changed
+
+- `soundscape validate` takes a theme name as well as a path: `soundscape validate --source wikipedia forest`.
+
 ## [0.3.0] - 2026-10-10
 
 ### Added

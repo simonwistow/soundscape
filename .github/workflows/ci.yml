@@ -75,7 +75,16 @@ jobs:
       - name: build the command
         run: go build -o soundscape ./cmd/soundscape
 
+      # Themes, samples and mappings built into the binary.
+      - name: go test with built-in themes
+        run: go test -tags embed ./...
+
+      - name: build the command with built-in themes
+        run: go build -tags embed -o soundscape-embed ./cmd/soundscape
+
       # Proof the binary links and runs, and that every bundled theme
       # (samples included) works with every bundled mapping.
       - name: smoke test
-        run: .github/scripts/smoke.sh ./soundscape
+        run: |
+          .github/scripts/smoke.sh ./soundscape
+          .github/scripts/smoke.sh ./soundscape-embed

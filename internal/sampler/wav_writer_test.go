@@ -4,6 +4,8 @@ import (
 	"math"
 	"path/filepath"
 	"testing"
+
+	"github.com/simonwistow/soundscape/internal/assets"
 )
 
 func TestWriteWAVRoundTrip(t *testing.T) {
@@ -20,7 +22,7 @@ func TestWriteWAVRoundTrip(t *testing.T) {
 		t.Fatalf("WriteWAV: %v", err)
 	}
 
-	frames, rate, err := loadWAV(path)
+	frames, rate, err := loadWAV(assets.Disk{}, path)
 	if err != nil {
 		t.Fatalf("loadWAV: %v", err)
 	}

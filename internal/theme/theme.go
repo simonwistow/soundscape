@@ -3,12 +3,14 @@ package theme
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"math/rand"
-	"os"
+	"path"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/simonwistow/soundscape/internal/assets"
 	"github.com/simonwistow/soundscape/internal/clock"
 	"github.com/simonwistow/soundscape/internal/event"
 	"github.com/simonwistow/soundscape/internal/metrics"
@@ -34,6 +36,18 @@ type Theme struct {
 	Name    string    `yaml:"name"`
 	Weather []Weather `yaml:"weather"`
 	Sounds  []Sound   `yaml:"sounds"`
+
+	// Files is where the theme's sample groups are: on disk (nil), or
+	// built into the binary.
+	Files fs.FS `yaml:"-"`
+}
+
+// FS returns where the theme's sample groups are.
+func (t Theme) FS() fs.FS {
+	if t.Files == nil {
+		return assets.Disk{}
+	}
+	return t.Files
 }
 
 type Range struct {
@@ -114,8 +128,9 @@ type Engine struct {
 	after func(d time.Duration, f func())
 }
 
-func Load(path string) (Theme, error) {
-	b, err := os.ReadFile(path)
+// Load reads the theme at file in fsys (assets.Disk{} for the filesystem).
+func Load(fsys fs.FS, file string) (Theme, error) {
+	b, err := fs.ReadFile(fsys, file)
 	if err != nil {
 		return Theme{}, err
 	}
@@ -126,7 +141,7 @@ func Load(path string) (Theme, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
 	if err := dec.Decode(&t); err != nil {
-		return Theme{}, fmt.Errorf("%s: %w", path, err)
+		return Theme{}, fmt.Errorf("%s: %w", file, err)
 	}
 	if t.Name == "" {
 		return Theme{}, fmt.Errorf("theme name is required")
@@ -134,12 +149,16 @@ func Load(path string) (Theme, error) {
 
 	// sample_group paths are conventionally relative to the theme file
 	// itself, so a theme directory stays self-contained wherever it's run
-	// from.
-	baseDir := filepath.Dir(path)
+	// from. Paths in an fs.FS are slash-separated, which the OS takes
+	// too.
+	baseDir := path.Dir(filepath.ToSlash(file))
 	for i, sound := range t.Sounds {
 		if sound.SampleGroup != "" && !filepath.IsAbs(sound.SampleGroup) {
-			t.Sounds[i].SampleGroup = filepath.Join(baseDir, sound.SampleGroup)
+			t.Sounds[i].SampleGroup = path.Join(baseDir, sound.SampleGroup)
 		}
+	}
+	if _, onDisk := fsys.(assets.Disk); !onDisk {
+		t.Files = fsys
 	}
 
 	return t, nil

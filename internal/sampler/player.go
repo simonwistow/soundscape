@@ -7,6 +7,7 @@ package sampler
 import (
 	"cmp"
 	"fmt"
+	"io/fs"
 	"math/rand"
 	"slices"
 	"sync"
@@ -48,10 +49,10 @@ func NewPlayer(sampleRate int, seed int64) *Player {
 	}
 }
 
-// LoadGroup loads every .wav file in dir and registers it under name so
-// event.Sample values can reference it.
-func (p *Player) LoadGroup(name, dir string) error {
-	g, err := LoadGroup(dir, p.sampleRate)
+// LoadGroup loads every .wav file in dir in fsys and registers it under
+// name so event.Sample values can reference it.
+func (p *Player) LoadGroup(name string, fsys fs.FS, dir string) error {
+	g, err := LoadGroup(fsys, dir, p.sampleRate)
 	if err != nil {
 		return err
 	}
